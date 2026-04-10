@@ -16,7 +16,7 @@ float prevtime = 0.0f;
 //car variables
 float CAR_X,CAR_Y,CAR_Z;
 float Velocity;
-float Angle=0.0f;
+float Angle=90.0f;
 float Angle_STEP = 2.0f;
 float Velocity_step = 0.01f;
 const float MAX_VELOCITY = 20.f;
@@ -189,11 +189,11 @@ void display(){
     float rad = Angle * M_PI / 180.0f;
     if(dt < 0.05)
         dt = 0.05f;
-    //CAR_X += Velocity *dt;
-    CAR_Z += Velocity * sin(rad)*dt;
+    CAR_X += Velocity *cos(rad)*dt;
+    CAR_Z -= Velocity * sin(rad)*dt;
 
     glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT);
+    glClear(GL_COLOR_BUFFER_BIT| GL_DEPTH_BUFFER_BIT);
 
     glUseProgram(ShaderProgram);
 
@@ -270,7 +270,7 @@ void keyboard(unsigned char key,int x,int y){
 void InitGlut(int argc,char ** argv){
 
     glutInit(&argc,argv);
-    glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB);
+    glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH);
     glutInitWindowSize(800,800);
     glutCreateWindow("asmt1");
 
@@ -319,7 +319,7 @@ void initAllBuffers()
      1.8f,0.2f,0.2f,  1.8f,0.5f,0.2f,  2.1f,0.4f,0.2f,
      1.8f,0.2f,0.2f,  2.1f,0.4f,0.2f,  2.1f,0.2f,0.2f,
      0.7f,0.65f,0.6f,  0.7f,0.65f,0.2f,  1.7f,0.65f,0.2f,
-     0.7f,0.65f,0.6f,  1.7f,0.65f,0.2f,  1.7f,0.65f,0.6f,
+     0.7f,0.65f,0.6f,  1.7,0.65f,0.2f,  1.7f,0.65f,0.6f,
      0.7f,0.65f,0.2f,  0.7f,0.5f,0.2f,  0.75f,0.5f,0.2f,
      0.7f,0.65f,0.2f,  0.75f,0.5f,0.2f, 0.77f,0.65f,0.2f,
      1.2f,0.65f,0.2f,  1.2f,0.5f,0.2f,  1.25f,0.5f,0.2f,
@@ -410,6 +410,7 @@ int main(int argc , char **argv){
         fprintf(stderr, "Error: '%s'\n", glewGetErrorString(res));
         return 1;
     }
+    glEnable(GL_DEPTH_TEST);
     CompileShaders();
     initAllBuffers();
     glutMainLoop();

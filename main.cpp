@@ -20,7 +20,7 @@ float Angle=0.0f;
 float Angle_STEP = 2.0f;
 float Velocity_step = 0.01f;
 const float MAX_VELOCITY = 20.f;
-GLuint carVAO, carVBO;
+GLuint carBodyVAO,carBodyVBO,carWinVAO,carWinVBO;
 const float CAR_HW = 0.5f;   // half-width  (X)
 const float CAR_HH = 0.3f;   // half-height (Y)
 const float CAR_HL = 1.0f;   // half-length (Z)
@@ -189,8 +189,8 @@ void display(){
     float rad = Angle * M_PI / 180.0f;
     if(dt < 0.05)
         dt = 0.05f;
-    CAR_X += Velocity * sin(rad)*dt;
-    CAR_Z += Velocity * cos(rad)*dt;
+    //CAR_X += Velocity *dt;
+    CAR_Z += Velocity * sin(rad)*dt;
 
     glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
@@ -222,10 +222,12 @@ void display(){
 
     createModelMatrix(matrix,CAR_X,0.0,CAR_Z,Angle);
     glUniformMatrix4fv(gModelLocation, 1, GL_FALSE, matrix);
-    glUniform3f(colorLoc, 0.2f, 0.5f, 1.0f);   // blue car
-    glBindVertexArray(carVAO);
+    glUniform3f(colorLoc, 1.0f, 0.0f, 0.0f);   // blue car
+    glBindVertexArray(carBodyVAO);
+    glDrawArrays(GL_TRIANGLES, 0, 200);
+    glUniform3f(colorLoc, 0.8588f, 0.8823f, 0.8901f);
+    glBindVertexArray(carWinVAO);
     glDrawArrays(GL_TRIANGLES, 0, 36);
-
 
     GLenum err = glGetError();
     if (err != GL_NO_ERROR)
@@ -255,8 +257,6 @@ void keyboard(unsigned char key,int x,int y){
     }    
     if(key == 's' || key == 'S'){
         Velocity -= Velocity_step;
-        if(Velocity <0)
-            Velocity = 0;
     }
     if(key == 'd' || key == 'D'){
         Angle -= Angle_STEP;
@@ -283,44 +283,123 @@ void InitGlut(int argc,char ** argv){
 
 }
 
-void initAllBuffers(){
+void initAllBuffers()
+{
+    // ── helper: convert one quad (12 floats = 4 xyz) to 2 triangles (18 floats) ──
+    // We just hand-write every triangle below for clarity.
+ 
+    float body[] = {
 
-    // for the car
-    float W = CAR_HW, H = CAR_HH, L = CAR_HL;
-
-        float verts[] = {
-        -W,-H, L,    W,-H, L,    W, H, L,
-        -W,-H, L,    W, H, L,   -W, H, L,
- 
-         W,-H,-L,   -W,-H,-L,   -W, H,-L,
-         W,-H,-L,   -W, H,-L,    W, H,-L,
- 
-        -W,-H,-L,   -W,-H, L,   -W, H, L,
-        -W,-H,-L,   -W, H, L,   -W, H,-L,
- 
-         W,-H, L,    W,-H,-L,    W, H,-L,
-         W,-H, L,    W, H,-L,    W, H, L,
- 
-        -W, H, L,    W, H, L,    W, H,-L,
-        -W, H, L,    W, H,-L,   -W, H,-L,
- 
-        -W,-H,-L,    W,-H,-L,    W,-H, L,
-        -W,-H,-L,    W,-H, L,   -W,-H, L,
+     0.2f,0.4f,0.6f,  0.6f,0.5f,0.6f,  0.6f,0.5f,0.2f,
+     0.2f,0.4f,0.6f,  0.6f,0.5f,0.2f,  0.2f,0.4f,0.2f,
+     0.2f,0.2f,0.6f,  0.6f,0.2f,0.6f,  0.6f,0.2f,0.2f,
+     0.2f,0.2f,0.6f,  0.6f,0.2f,0.2f,  0.2f,0.2f,0.2f,
+     0.2f,0.2f,0.6f,  0.2f,0.4f,0.6f,  0.2f,0.4f,0.2f,
+     0.2f,0.2f,0.6f,  0.2f,0.4f,0.2f,  0.2f,0.2f,0.2f,
+     0.6f,0.2f,0.6f,  0.6f,0.5f,0.6f,  0.6f,0.5f,0.2f,
+     0.6f,0.2f,0.6f,  0.6f,0.5f,0.2f,  0.6f,0.2f,0.2f,
+     0.2f,0.2f,0.6f,  0.6f,0.2f,0.6f,  0.6f,0.5f,0.6f,
+     0.2f,0.2f,0.6f,  0.6f,0.5f,0.6f,  0.2f,0.4f,0.6f,
+     0.2f,0.2f,0.2f,  0.6f,0.2f,0.2f,  0.6f,0.5f,0.2f,
+     0.2f,0.2f,0.2f,  0.6f,0.5f,0.2f,  0.2f,0.4f,0.2f,
+     0.6f,0.5f,0.6f,  0.6f,0.2f,0.6f,  1.8f,0.2f,0.6f,
+     0.6f,0.5f,0.6f,  1.8f,0.2f,0.6f,  1.8f,0.5f,0.6f,
+     0.6f,0.2f,0.6f,  0.6f,0.2f,0.2f,  1.8f,0.2f,0.2f,
+     0.6f,0.2f,0.6f,  1.8f,0.2f,0.2f,  1.8f,0.2f,0.6f,
+     0.6f,0.5f,0.2f,  0.6f,0.2f,0.2f,  1.8f,0.2f,0.2f,
+     0.6f,0.5f,0.2f,  1.8f,0.2f,0.2f,  1.8f,0.5f,0.2f,
+     1.8f,0.5f,0.6f,  1.8f,0.5f,0.2f,  2.1f,0.4f,0.2f,
+     1.8f,0.5f,0.6f,  2.1f,0.4f,0.2f,  2.1f,0.4f,0.6f,
+     2.1f,0.2f,0.6f,  2.1f,0.2f,0.2f,  1.8f,0.2f,0.2f,
+     2.1f,0.2f,0.6f,  1.8f,0.2f,0.2f,  1.8f,0.2f,0.6f,
+     2.1f,0.4f,0.6f,  2.1f,0.4f,0.2f,  2.1f,0.2f,0.2f,
+     2.1f,0.4f,0.6f,  2.1f,0.2f,0.2f,  2.1f,0.2f,0.6f,
+     1.8f,0.2f,0.6f,  1.8f,0.5f,0.6f,  2.1f,0.4f,0.6f,
+     1.8f,0.2f,0.6f,  2.1f,0.4f,0.6f,  2.1f,0.2f,0.6f,
+     1.8f,0.2f,0.2f,  1.8f,0.5f,0.2f,  2.1f,0.4f,0.2f,
+     1.8f,0.2f,0.2f,  2.1f,0.4f,0.2f,  2.1f,0.2f,0.2f,
+     0.7f,0.65f,0.6f,  0.7f,0.65f,0.2f,  1.7f,0.65f,0.2f,
+     0.7f,0.65f,0.6f,  1.7f,0.65f,0.2f,  1.7f,0.65f,0.6f,
+     0.7f,0.65f,0.2f,  0.7f,0.5f,0.2f,  0.75f,0.5f,0.2f,
+     0.7f,0.65f,0.2f,  0.75f,0.5f,0.2f, 0.77f,0.65f,0.2f,
+     1.2f,0.65f,0.2f,  1.2f,0.5f,0.2f,  1.25f,0.5f,0.2f,
+     1.2f,0.65f,0.2f,  1.25f,0.5f,0.2f, 1.27f,0.65f,0.2f,
+     1.65f,0.65f,0.2f, 1.65f,0.5f,0.2f, 1.7f,0.5f,0.2f,
+     1.65f,0.65f,0.2f, 1.7f,0.5f,0.2f,  1.7f,0.65f,0.2f,
+     0.75f,0.65f,0.2f, 0.75f,0.63f,0.2f, 1.7f,0.63f,0.2f,
+     0.75f,0.65f,0.2f, 1.7f,0.63f,0.2f,  1.7f,0.65f,0.2f,
+     0.7f,0.65f,0.6f,  0.7f,0.5f,0.6f,  0.75f,0.5f,0.6f,
+     0.7f,0.65f,0.6f,  0.75f,0.5f,0.6f, 0.77f,0.65f,0.6f,
+     1.2f,0.65f,0.6f,  1.2f,0.5f,0.6f,  1.25f,0.5f,0.6f,
+     1.2f,0.65f,0.6f,  1.25f,0.5f,0.6f, 1.27f,0.65f,0.6f,
+     1.65f,0.65f,0.6f, 1.65f,0.5f,0.6f, 1.7f,0.5f,0.6f,
+     1.65f,0.65f,0.6f, 1.7f,0.5f,0.6f,  1.7f,0.65f,0.6f,
+     0.75f,0.65f,0.6f, 0.75f,0.63f,0.6f, 1.7f,0.63f,0.6f,
+     0.75f,0.65f,0.6f, 1.7f,0.63f,0.6f,  1.7f,0.65f,0.6f,
     };
  
-    glGenVertexArrays(1, &carVAO);
-    glGenBuffers(1, &carVBO);
+    glGenVertexArrays(1, &carBodyVAO);
+    glGenBuffers(1, &carBodyVBO);
+    glBindVertexArray(carBodyVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, carBodyVBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(body), body, GL_STATIC_DRAW);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3*sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
  
-    glBindVertexArray(carVAO);
-    glBindBuffer(GL_ARRAY_BUFFER, carVBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_STATIC_DRAW);
+    // ─────────────────────────────────────────────────────────
+    //  WINDOWS + WINDSHIELDS  (draw with dark colour)
+    // ─────────────────────────────────────────────────────────
+    float windows[] = {
+    // ── side windows (z = 0.2, right side) ──────────────────
  
-    // attribute 0 = position (xyz), stride = 3 floats, no normals yet
+    // front window
+     0.77f,0.63f,0.2f, 0.75f,0.5f,0.2f, 1.2f,0.5f,0.2f,
+     0.77f,0.63f,0.2f, 1.2f,0.5f,0.2f,  1.22f,0.63f,0.2f,
+ 
+    // rear window
+     1.27f,0.63f,0.2f, 1.25f,0.5f,0.2f, 1.65f,0.5f,0.2f,
+     1.27f,0.63f,0.2f, 1.65f,0.5f,0.2f, 1.67f,0.63f,0.2f,
+ 
+    // ── side windows (z = 0.6, left side) ───────────────────
+ 
+    // front window
+     0.77f,0.63f,0.6f, 0.75f,0.5f,0.6f, 1.2f,0.5f,0.6f,
+     0.77f,0.63f,0.6f, 1.2f,0.5f,0.6f,  1.22f,0.63f,0.6f,
+ 
+    // rear window
+     1.27f,0.63f,0.6f, 1.25f,0.5f,0.6f, 1.65f,0.5f,0.6f,
+     1.27f,0.63f,0.6f, 1.65f,0.5f,0.6f, 1.67f,0.63f,0.6f,
+ 
+    // ── front windshield (angled quad) ──────────────────────
+     0.6f,0.5f,0.6f,  0.6f,0.5f,0.2f,  0.7f,0.65f,0.2f,
+     0.6f,0.5f,0.6f,  0.7f,0.65f,0.2f, 0.7f,0.65f,0.6f,
+ 
+    // ── rear windshield (angled quad) ───────────────────────
+     1.7f,0.65f,0.6f, 1.7f,0.65f,0.2f, 1.8f,0.5f,0.2f,
+     1.7f,0.65f,0.6f, 1.8f,0.5f,0.2f,  1.8f,0.5f,0.6f,
+ 
+    // ── windshield corner triangles ──────────────────────────
+    // front left corner (z=0.6 side)
+     0.6f,0.5f,0.6f,  0.7f,0.65f,0.6f, 0.7f,0.5f,0.6f,
+    // front right corner (z=0.2 side)
+     0.6f,0.5f,0.2f,  0.7f,0.65f,0.2f, 0.7f,0.5f,0.2f,
+    // rear left corner (z=0.2 side)
+     1.7f,0.65f,0.2f, 1.8f,0.5f,0.2f,  1.7f,0.5f,0.2f,
+    // rear right corner (z=0.6 side)
+     1.7f,0.65f,0.6f, 1.8f,0.5f,0.6f,  1.7f,0.5f,0.6f,
+    };
+ 
+    glGenVertexArrays(1, &carWinVAO);
+    glGenBuffers(1, &carWinVBO);
+    glBindVertexArray(carWinVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, carWinVBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(windows), windows, GL_STATIC_DRAW);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3*sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
  
     glBindVertexArray(0);
 }
+
 
 int main(int argc , char **argv){
 

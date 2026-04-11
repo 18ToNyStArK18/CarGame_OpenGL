@@ -14,7 +14,7 @@ GLuint ShaderProgram;
 float prevtime = 0.0f;
 
 //car variables
-float CAR_X=16.7f,CAR_Y=0,CAR_Z=0;
+float CAR_X=50.0f,CAR_Y=0,CAR_Z=0;
 float Velocity;
 float Angle=-90.0f;
 float Angle_STEP = 2.0f;
@@ -25,9 +25,14 @@ GLuint carBodyVAO,carBodyVBO,carWinVAO,carWinVBO;
 //track variables
 
 GLuint trackVerticalVAO,trackVerticalVBO;
+GLuint trackTopArcVBO , trackTopArcVAO , trackBottomArcVAO , trackBottomArcVBO;
+const int   ARC_SEGS  = 30;        
+const float ARC_CX    = 9.0f;      
+const float ARC_OUTER = 9.0f;
+const float ARC_INNER = 6.0f;
 
 //for the camera
-float camX = 10.0f, camY = 8.0f, camZ = -20.0f;
+float camX = 45.0f, camY = 8.0f, camZ = -20.0f;
 float camZStep = 0.5f; 
 float camYaw = 0.0f;
 float camPitch = -15.0f;
@@ -135,23 +140,30 @@ void createViewMatrix(float *m, float eyeX, float eyeY, float eyeZ,
 }
 
 void createModelMatrix(float *m, float tx, float ty, float tz,
-        float angleDegrees) {
+        float angleDegrees, float sx, float sy, float sz) {
     memset(m, 0, 16 * sizeof(float));
     float rad = angleDegrees * M_PI / 180.0f;
     float c = cos(rad), s = sin(rad);
 
-    m[0] = c;
+    // column 0  (X basis, scaled by sx)
+    m[0] = c * sx;
     m[1] = 0;
-    m[2] = -s;
+    m[2] = -s * sx;
     m[3] = 0;
+
+    // column 1  (Y basis, scaled by sy)
     m[4] = 0;
-    m[5] = 1;
+    m[5] = 1 * sy;
     m[6] = 0;
     m[7] = 0;
-    m[8] = s;
-    m[9] = 0;
-    m[10] = c;
+
+    // column 2  (Z basis, scaled by sz)
+    m[8]  = s * sz;
+    m[9]  = 0;
+    m[10] = c * sz;
     m[11] = 0;
+
+    // column 3  (translation – unchanged)
     m[12] = tx;
     m[13] = ty;
     m[14] = tz;
@@ -182,7 +194,7 @@ void createProjectionMatrix(float *m, float l, float r, float b, float t,
 
 
 void display(){
-    
+
     float currentTime = glutGet(GLUT_ELAPSED_TIME)/1000.0f;
     float dt = currentTime = prevtime;
     prevtime = currentTime;
@@ -223,7 +235,7 @@ void display(){
     glUniformMatrix4fv(gModelLocation, 1, GL_FALSE, identity);
 
     //for the car 
-    createModelMatrix(matrix,CAR_X,0.0,CAR_Z,Angle);
+    createModelMatrix(matrix,CAR_X,0.0,CAR_Z,Angle,1.0f,1.0f,1.0f);
     glUniform3f(colorLoc, 1.0f, 0.0f, 0.0f);   // blue car
 
     //for the body of the car
@@ -237,11 +249,15 @@ void display(){
     glDrawArrays(GL_TRIANGLES, 0, 36);
 
     //for the track
-    createModelMatrix(matrix,0.0f,0.0f,0.0f,0.0f);
+    createModelMatrix(matrix,0.0f,0.0f,0.0f,0.0f,3.0f,3.0f,3.0f);
     glUniformMatrix4fv(gModelLocation, 1, GL_FALSE, matrix);
     glUniform3f(colorLoc, 0.1960f,0.1960f,0.1960f);
     glBindVertexArray(trackVerticalVAO);
     glDrawArrays(GL_TRIANGLES, 0, 20);
+    glBindVertexArray(trackTopArcVAO);
+    glDrawArrays(GL_TRIANGLES, 0, ARC_SEGS * 6);
+    glBindVertexArray(trackBottomArcVAO);
+    glDrawArrays(GL_TRIANGLES, 0, ARC_SEGS * 6);
 
     GLenum err = glGetError();
     if (err != GL_NO_ERROR)
@@ -298,8 +314,6 @@ void InitGlut(int argc,char ** argv){
 
 void initAllBuffers()
 {
-    // ── helper: convert one quad (12 floats = 4 xyz) to 2 triangles (18 floats) ──
-    // We just hand-write every triangle below for clarity.
 
     float body[] = {
 
@@ -359,11 +373,7 @@ void initAllBuffers()
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3*sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
 
-    // ─────────────────────────────────────────────────────────
-    //  WINDOWS + WINDSHIELDS  (draw with dark colour)
-    // ─────────────────────────────────────────────────────────
     float windows[] = {
-        // ── side windows (z = 0.2, right side) ──────────────────
 
         // front window
         0.77f,0.63f,0.2f, 0.75f,0.5f,0.2f, 1.2f,0.5f,0.2f,
@@ -372,8 +382,6 @@ void initAllBuffers()
         // rear window
         1.27f,0.63f,0.2f, 1.25f,0.5f,0.2f, 1.65f,0.5f,0.2f,
         1.27f,0.63f,0.2f, 1.65f,0.5f,0.2f, 1.67f,0.63f,0.2f,
-
-        // ── side windows (z = 0.6, left side) ───────────────────
 
         // front window
         0.77f,0.63f,0.6f, 0.75f,0.5f,0.6f, 1.2f,0.5f,0.6f,
@@ -391,7 +399,6 @@ void initAllBuffers()
         1.7f,0.65f,0.6f, 1.7f,0.65f,0.2f, 1.8f,0.5f,0.2f,
         1.7f,0.65f,0.6f, 1.8f,0.5f,0.2f,  1.8f,0.5f,0.6f,
 
-        // ── windshield corner triangles ──────────────────────────
         // front left corner (z=0.6 side)
         0.6f,0.5f,0.6f,  0.7f,0.65f,0.6f, 0.7f,0.5f,0.6f,
         // front right corner (z=0.2 side)
@@ -428,10 +435,59 @@ void initAllBuffers()
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3*sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
 
+    float top[ARC_SEGS * 6 * 3];   // 6 verts per slice × 3 floats
+    int vi = 0;
+    for (int i = 0; i < ARC_SEGS; i++) {
+        float a0 = (float) i      / ARC_SEGS * M_PI;
+        float a1 = (float)(i + 1) / ARC_SEGS * M_PI;
 
+        float ox0 = ARC_CX + ARC_OUTER * cosf(a0),  oz0 = -ARC_OUTER * sinf(a0);
+        float ox1 = ARC_CX + ARC_OUTER * cosf(a1),  oz1 = -ARC_OUTER * sinf(a1);
+        float ix0 = ARC_CX + ARC_INNER * cosf(a0),  iz0 = -ARC_INNER * sinf(a0);
+        float ix1 = ARC_CX + ARC_INNER * cosf(a1),  iz1 = -ARC_INNER * sinf(a1);
 
+        top[vi++]=ox0; top[vi++]=0; top[vi++]=oz0;
+        top[vi++]=ix0; top[vi++]=0; top[vi++]=iz0;
+        top[vi++]=ix1; top[vi++]=0; top[vi++]=iz1;
+        top[vi++]=ox0; top[vi++]=0; top[vi++]=oz0;
+        top[vi++]=ix1; top[vi++]=0; top[vi++]=iz1;
+        top[vi++]=ox1; top[vi++]=0; top[vi++]=oz1;
+        glBindVertexArray(0);
+    }
+    glGenVertexArrays(1, &trackTopArcVAO);
+    glGenBuffers(1, &trackTopArcVBO);
+    glBindVertexArray(trackTopArcVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, trackTopArcVBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(top), top, GL_STATIC_DRAW);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3*sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
 
-    glBindVertexArray(0);
+    float verts[ARC_SEGS * 6 * 3];
+    vi = 0;
+    for (int i = 0; i < ARC_SEGS; i++) {
+        float a0 = (float) i      / ARC_SEGS * M_PI;
+        float a1 = (float)(i + 1) / ARC_SEGS * M_PI;
+
+        float ox0 = ARC_CX + ARC_OUTER * cosf(a0),  oz0 = 30.0f + ARC_OUTER * sinf(a0);
+        float ox1 = ARC_CX + ARC_OUTER * cosf(a1),  oz1 = 30.0f + ARC_OUTER * sinf(a1);
+        float ix0 = ARC_CX + ARC_INNER * cosf(a0),  iz0 = 30.0f + ARC_INNER * sinf(a0);
+        float ix1 = ARC_CX + ARC_INNER * cosf(a1),  iz1 = 30.0f + ARC_INNER * sinf(a1);
+
+        verts[vi++]=ox0; verts[vi++]=0; verts[vi++]=oz0;
+        verts[vi++]=ix0; verts[vi++]=0; verts[vi++]=iz0;
+        verts[vi++]=ix1; verts[vi++]=0; verts[vi++]=iz1;
+        verts[vi++]=ox0; verts[vi++]=0; verts[vi++]=oz0;
+        verts[vi++]=ix1; verts[vi++]=0; verts[vi++]=iz1;
+        verts[vi++]=ox1; verts[vi++]=0; verts[vi++]=oz1;
+    }
+
+    glGenVertexArrays(1, &trackBottomArcVAO);
+    glGenBuffers(1, &trackBottomArcVBO);
+    glBindVertexArray(trackBottomArcVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, trackBottomArcVBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_STATIC_DRAW);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3*sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
 }
 
 

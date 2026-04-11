@@ -21,7 +21,27 @@ float Angle_STEP = 2.0f;
 float Velocity_step = 0.01f;
 const float MAX_VELOCITY = 20.f;
 GLuint carBodyVAO,carBodyVBO,carWinVAO,carWinVBO;
+#define NUM_NPC  20
+struct NPCCar {
+    float x, z;       
+    float angle;      
+    float r, g, b;    
+};
+NPCCar npcCars[NUM_NPC];
 
+static const float NPC_COLORS[NUM_NPC][3] = {
+    {1.0f, 0.2f, 0.2f},   // red
+    {0.2f, 1.0f, 0.2f},   // green
+    {1.0f, 0.6f, 0.0f},   // orange
+    {0.8f, 0.0f, 0.8f},   // purple
+    {0.0f, 0.8f, 0.8f},   // cyan
+    {1.0f, 1.0f, 0.0f},   // yellow
+    {1.0f, 0.4f, 0.7f},   // pink
+    {0.4f, 0.8f, 0.2f},   // lime
+    {0.2f, 0.4f, 1.0f},   // blue
+    {1.0f, 0.9f, 0.7f},   // cream
+                          // #define NUM_NPC  10
+};
 //track variables
 
 GLuint trackVerticalVAO,trackVerticalVBO;
@@ -191,7 +211,33 @@ void createProjectionMatrix(float *m, float l, float r, float b, float t,
     m[14] = -(2.0f * f * n) / (f - n);
 }
 
+void initNPCCars()
+{
+    const float LEFT_X_MIN  =  0.5f;   const float LEFT_X_MAX  =  6.5f;
+    const float RIGHT_X_MIN = 45.5f;   const float RIGHT_X_MAX = 51.5f;
+    const float Z_MIN       =  5.0f;   const float Z_MAX       = 85.0f;
 
+    for (int i = 0; i < NUM_NPC; i++) {
+
+        // randomly pick left or right strip
+        int strip = rand() % 2;
+
+        float xMin = (strip == 0) ? LEFT_X_MIN  : RIGHT_X_MIN;
+        float xMax = (strip == 0) ? LEFT_X_MAX  : RIGHT_X_MAX;
+
+        // rand() gives int 0..RAND_MAX, divide to get 0..1 float
+        float t = (float)(rand() % 1000) / 1000.0f;   // 0.0 → 0.999
+        npcCars[i].x = xMin + t * (xMax - xMin);
+
+        t = (float)(rand() % 1000) / 1000.0f;
+        npcCars[i].z = Z_MIN + t * (Z_MAX - Z_MIN);
+
+        npcCars[i].angle = -90.0f;
+        npcCars[i].r     = NPC_COLORS[i%10][0];
+        npcCars[i].g     = NPC_COLORS[i%10][1];
+        npcCars[i].b     = NPC_COLORS[i%10][2];
+    }
+}
 
 void display(){
 
@@ -221,7 +267,7 @@ void display(){
     glUniformMatrix4fv(gProjectionLocation, 1, GL_FALSE, proj);
     // this to create the view matrix for the camera
     float view[16];
-    float yawRad = camYaw * M_PI / 180.0f;
+    float yawRad = Angle * M_PI / 180.0f;
     float pitchRad = camPitch * M_PI / 180.0f;
     float dirX = -cos(pitchRad) * sin(yawRad);
     float dirY = sin(pitchRad);
@@ -259,6 +305,21 @@ void display(){
     glBindVertexArray(trackBottomArcVAO);
     glDrawArrays(GL_TRIANGLES, 0, ARC_SEGS * 6);
 
+
+    //npc npcCars
+    for (int i = 0; i < NUM_NPC; i++) {
+
+        createModelMatrix(matrix,npcCars[i].x,0.0f,npcCars[i].z,npcCars[i].angle,1.0f, 1.0f, 1.0f);   // scale = 1
+        glUniformMatrix4fv(gModelLocation, 1, GL_FALSE, matrix);
+
+        glUniform3f(colorLoc, npcCars[i].r, npcCars[i].g, npcCars[i].b);
+        glBindVertexArray(carBodyVAO);
+        glDrawArrays(GL_TRIANGLES, 0, 138);
+
+        glUniform3f(colorLoc, 0.8588f, 0.8823f, 0.8901f);
+        glBindVertexArray(carWinVAO);
+        glDrawArrays(GL_TRIANGLES, 0, 48);
+    }
     GLenum err = glGetError();
     if (err != GL_NO_ERROR)
         fprintf(stderr, "GL error: %u\n", err);
@@ -500,6 +561,8 @@ int main(int argc , char **argv){
         fprintf(stderr, "Error: '%s'\n", glewGetErrorString(res));
         return 1;
     }
+
+    initNPCCars();
     glEnable(GL_DEPTH_TEST);
     CompileShaders();
     initAllBuffers();

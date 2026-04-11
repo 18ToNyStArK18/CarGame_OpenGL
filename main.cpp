@@ -19,7 +19,7 @@ float CAR_X=50.0f,CAR_Y=0,CAR_Z=0;
 float Velocity;
 float Angle=-90.0f;
 float Angle_STEP = 2.0f;
-float Velocity_step = 0.01f;
+float Velocity_step = 0.1f;
 const float MAX_VELOCITY = 20.f;
 GLuint carBodyVAO,carBodyVBO,carWinVAO,carWinVBO;
 #define NUM_NPC  20
@@ -41,7 +41,6 @@ static const float NPC_COLORS[NUM_NPC][3] = {
     {0.4f, 0.8f, 0.2f},   // lime
     {0.2f, 0.4f, 1.0f},   // blue
     {1.0f, 0.9f, 0.7f},   // cream
-                          // #define NUM_NPC  10
 };
 //track variables
 
@@ -55,12 +54,16 @@ const float ARC_INNER = 6.0f;
 
 //for the building
 
-GLuint buildVAO,buildVBO;
-//for the camera
-float camX = 45.0f, camY = 8.0f, camZ = -20.0f;
-float camZStep = 0.5f; 
-float camYaw = 0.0f;
-float camPitch = -15.0f;
+struct build {
+    GLuint VAO , VBO;
+    float x,z;
+    float sx,sy,sz;
+    vector<float> vertices;
+    int vertices_count;
+};
+const int NUM_OF_BUILDS =  5;
+
+build buildings[NUM_OF_BUILDS];
 
 GLuint gModelLocation, gViewLocation, gProjectionLocation;
 
@@ -70,7 +73,7 @@ struct Vertex3D { float x, y, z; };
 
 
 //this function is to create a vertex array from the obj file exported from the blender
-vector<float> loadObjToFlatArray(const char* filepath) {
+vector<float> loadObjToFlatArray(string filepath) {
     vector<Vertex3D> temp_vertices;
     vector<float> out_vertices;
 
@@ -224,25 +227,21 @@ void createModelMatrix(float *m, float tx, float ty, float tz,
     float rad = angleDegrees * M_PI / 180.0f;
     float c = cos(rad), s = sin(rad);
 
-    // column 0  (X basis, scaled by sx)
     m[0] = c * sx;
     m[1] = 0;
     m[2] = -s * sx;
     m[3] = 0;
 
-    // column 1  (Y basis, scaled by sy)
     m[4] = 0;
     m[5] = 1 * sy;
     m[6] = 0;
     m[7] = 0;
 
-    // column 2  (Z basis, scaled by sz)
     m[8]  = s * sz;
     m[9]  = 0;
     m[10] = c * sz;
     m[11] = 0;
 
-    // column 3  (translation – unchanged)
     m[12] = tx;
     m[13] = ty;
     m[14] = tz;
@@ -278,14 +277,12 @@ void initNPCCars()
 
     for (int i = 0; i < NUM_NPC; i++) {
 
-        // randomly pick left or right strip
         int strip = rand() % 2;
 
         float xMin = (strip == 0) ? LEFT_X_MIN  : RIGHT_X_MIN;
         float xMax = (strip == 0) ? LEFT_X_MAX  : RIGHT_X_MAX;
 
-        // rand() gives int 0..RAND_MAX, divide to get 0..1 float
-        float t = (float)(rand() % 1000) / 1000.0f;   // 0.0 → 0.999
+        float t = (float)(rand() % 1000) / 1000.0f;
         npcCars[i].x = xMin + t * (xMax - xMin);
 
         t = (float)(rand() % 1000) / 1000.0f;
@@ -309,8 +306,6 @@ void display(){
         dt = 0.05f;
     CAR_X += Velocity *cos(rad)*dt;
     CAR_Z -= Velocity * sin(rad)*dt;
-    camX += Velocity *cos(rad)*dt;
-    camZ -= Velocity *sin(rad) *dt;
     glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT| GL_DEPTH_BUFFER_BIT);
 
@@ -326,14 +321,16 @@ void display(){
     glUniformMatrix4fv(gProjectionLocation, 1, GL_FALSE, proj);
     // this to create the view matrix for the camera
     float view[16];
-    float yawRad = camYaw * M_PI / 180.0f;
-    float pitchRad = camPitch * M_PI / 180.0f;
-    float dirX = -cos(pitchRad) * sin(yawRad);
-    float dirY = sin(pitchRad);
-    float dirZ = -cos(pitchRad) * (-cos(yawRad));
-    createViewMatrix(view, camX, camY, camZ,                // eye
-            camX + dirX, camY + dirY, camZ + dirZ, // look-at target
-            0.0f, 1.0f, 0.0f);                     // up
+    float followDistance = 12.0f; // how far behind the car the camera sits
+    float cameraHeight = 5.0f;    // how high above the car the camera sits
+    float eyeX = CAR_X - (followDistance * cos(rad));
+    float eyeY = CAR_Y + cameraHeight;
+    float eyeZ = CAR_Z + (followDistance * sin(rad));
+    float targetX = CAR_X;
+    float targetY = CAR_Y + 2.0f; 
+    float targetZ = CAR_Z;
+
+    createViewMatrix(view, eyeX, eyeY, eyeZ, targetX, targetY, targetZ, 0.0f, 1.0f, 0.0f);
     glUniformMatrix4fv(gViewLocation, 1, GL_FALSE, view);
     float identity[16];
     setIdentity(identity);
@@ -353,13 +350,15 @@ void display(){
     glBindVertexArray(carWinVAO);
     glDrawArrays(GL_TRIANGLES, 0, 36);
 
-    createModelMatrix(matrix,40.0f,0.0,0,0.0,0.50f,0.50f,0.50f);
-    glUniform3f(colorLoc, 1.0f, 0.0f, 0.0f);   
-    glUniformMatrix4fv(gModelLocation, 1, GL_FALSE, matrix);
-    glBindVertexArray(buildVAO);
+    //for all the buildings
+    for(int i=0;i<NUM_OF_BUILDS;i++){
+        createModelMatrix(matrix,40.0f - (i%2)*25.0f,0.0,0.0f+i*20.0f,0.0,0.50f,0.50f,0.50f);
+        glUniform3f(colorLoc, 1.0f, 0.0f, 0.0f);   
+        glUniformMatrix4fv(gModelLocation, 1, GL_FALSE, matrix);
+        glBindVertexArray(buildings[i].VAO);
+        glDrawArrays(GL_TRIANGLES, 0, buildings[i].vertices_count);
 
-    // Use the dynamic count here!
-    glDrawArrays(GL_TRIANGLES, 0, buildingVertexCount1);
+    }
     //for the track
     createModelMatrix(matrix,0.0f,0.0f,0.0f,0.0f,3.0f,3.0f,3.0f);
     glUniformMatrix4fv(gModelLocation, 1, GL_FALSE, matrix);
@@ -562,17 +561,22 @@ void initAllBuffers()
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3*sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
 
-    vector<float> buildingData = loadObjToFlatArray("building1.obj");
-    buildingVertexCount1 = buildingData.size() / 3;
-    glGenVertexArrays(1, &buildVAO);
-    glGenBuffers(1, &buildVBO);
-    glBindVertexArray(buildVAO);
-    glBindBuffer(GL_ARRAY_BUFFER, buildVBO);
+    //for the buildings
+    for(int i=0;i<NUM_OF_BUILDS;i++){
+        string path = "buildings/building";
+        path += to_string(i+1);
+        path += ".obj";
+        buildings[i].vertices = loadObjToFlatArray(path);
+        buildings[i].vertices_count = buildings[i].vertices.size()/3;
+        glGenVertexArrays(1, &buildings[i].VAO);
+        glGenBuffers(1, &buildings[i].VBO);
+        glBindVertexArray(buildings[i].VAO);
+        glBindBuffer(GL_ARRAY_BUFFER, buildings[i].VBO);
+        glBufferData(GL_ARRAY_BUFFER, buildings[i].vertices.size() * sizeof(float), buildings[i].vertices.data(), GL_STATIC_DRAW);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3*sizeof(float), (void*)0);
+        glEnableVertexAttribArray(0);
 
-    glBufferData(GL_ARRAY_BUFFER, buildingData.size() * sizeof(float), buildingData.data(), GL_STATIC_DRAW);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3*sizeof(float), (void*)0);
-    glEnableVertexAttribArray(0);
-
+    }
 
     float top[ARC_SEGS * 6 * 3];   // 6 verts per slice × 3 floats
     int vi = 0;

@@ -6,6 +6,7 @@
 #include <iostream>
 #include <string.h>
 #include <SFML/Audio.hpp>
+#include <sstream>
 
 #include "file_utils.h"
 GLuint ShaderProgram;
@@ -51,6 +52,10 @@ const float ARC_CX    = 9.0f;
 const float ARC_OUTER = 9.0f;
 const float ARC_INNER = 6.0f;
 
+
+//for the building
+
+GLuint buildVAO,buildVBO;
 //for the camera
 float camX = 45.0f, camY = 8.0f, camZ = -20.0f;
 float camZStep = 0.5f; 
@@ -58,6 +63,60 @@ float camYaw = 0.0f;
 float camPitch = -15.0f;
 
 GLuint gModelLocation, gViewLocation, gProjectionLocation;
+
+int buildingVertexCount1 = 0;
+
+struct Vertex3D { float x, y, z; };
+
+
+//this function is to create a vertex array from the obj file exported from the blender
+vector<float> loadObjToFlatArray(const char* filepath) {
+    vector<Vertex3D> temp_vertices;
+    vector<float> out_vertices;
+
+    ifstream file(filepath);
+    if (!file.is_open()) {
+        std::cerr << "Failed to open " << filepath << std::endl;
+        return out_vertices;
+    }
+
+    std::string line;
+    while (std::getline(file, line)) {
+        std::stringstream ss(line);
+        std::string prefix;
+        ss >> prefix;
+
+        if (prefix == "v") {
+            Vertex3D v;
+            ss >> v.x >> v.y >> v.z;
+            temp_vertices.push_back(v);
+        } 
+        else if (prefix == "f") {
+            std::string v1, v2, v3, v4;
+            ss >> v1 >> v2 >> v3;
+            
+            if (!(ss >> v4)) { v4 = ""; }
+
+            auto getIndex = [](const std::string& token) {
+                return std::stoi(token.substr(0, token.find('/'))) - 1; // .obj indices start at 1
+            };
+
+            int i1 = getIndex(v1), i2 = getIndex(v2), i3 = getIndex(v3);
+
+            out_vertices.push_back(temp_vertices[i1].x); out_vertices.push_back(temp_vertices[i1].y); out_vertices.push_back(temp_vertices[i1].z);
+            out_vertices.push_back(temp_vertices[i2].x); out_vertices.push_back(temp_vertices[i2].y); out_vertices.push_back(temp_vertices[i2].z);
+            out_vertices.push_back(temp_vertices[i3].x); out_vertices.push_back(temp_vertices[i3].y); out_vertices.push_back(temp_vertices[i3].z);
+
+            if (!v4.empty()) {
+                int i4 = getIndex(v4);
+                out_vertices.push_back(temp_vertices[i1].x); out_vertices.push_back(temp_vertices[i1].y); out_vertices.push_back(temp_vertices[i1].z);
+                out_vertices.push_back(temp_vertices[i3].x); out_vertices.push_back(temp_vertices[i3].y); out_vertices.push_back(temp_vertices[i3].z);
+                out_vertices.push_back(temp_vertices[i4].x); out_vertices.push_back(temp_vertices[i4].y); out_vertices.push_back(temp_vertices[i4].z);
+            }
+        }
+    }
+    return out_vertices;
+}
 
 static void AddShader(GLuint ShaderProgram, const char* pShaderText , GLenum ShaderType){
     GLuint ShaderObj = glCreateShader(ShaderType);
@@ -267,7 +326,7 @@ void display(){
     glUniformMatrix4fv(gProjectionLocation, 1, GL_FALSE, proj);
     // this to create the view matrix for the camera
     float view[16];
-    float yawRad = Angle * M_PI / 180.0f;
+    float yawRad = camYaw * M_PI / 180.0f;
     float pitchRad = camPitch * M_PI / 180.0f;
     float dirX = -cos(pitchRad) * sin(yawRad);
     float dirY = sin(pitchRad);
@@ -294,6 +353,13 @@ void display(){
     glBindVertexArray(carWinVAO);
     glDrawArrays(GL_TRIANGLES, 0, 36);
 
+    createModelMatrix(matrix,40.0f,0.0,0,0.0,0.50f,0.50f,0.50f);
+    glUniform3f(colorLoc, 1.0f, 0.0f, 0.0f);   
+    glUniformMatrix4fv(gModelLocation, 1, GL_FALSE, matrix);
+    glBindVertexArray(buildVAO);
+
+    // Use the dynamic count here!
+    glDrawArrays(GL_TRIANGLES, 0, buildingVertexCount1);
     //for the track
     createModelMatrix(matrix,0.0f,0.0f,0.0f,0.0f,3.0f,3.0f,3.0f);
     glUniformMatrix4fv(gModelLocation, 1, GL_FALSE, matrix);
@@ -495,6 +561,18 @@ void initAllBuffers()
     glBufferData(GL_ARRAY_BUFFER, sizeof(trackVertical), trackVertical, GL_STATIC_DRAW);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3*sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
+
+    vector<float> buildingData = loadObjToFlatArray("building1.obj");
+    buildingVertexCount1 = buildingData.size() / 3;
+    glGenVertexArrays(1, &buildVAO);
+    glGenBuffers(1, &buildVBO);
+    glBindVertexArray(buildVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, buildVBO);
+
+    glBufferData(GL_ARRAY_BUFFER, buildingData.size() * sizeof(float), buildingData.data(), GL_STATIC_DRAW);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3*sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+
 
     float top[ARC_SEGS * 6 * 3];   // 6 verts per slice × 3 floats
     int vi = 0;

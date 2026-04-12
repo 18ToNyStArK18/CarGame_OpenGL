@@ -24,6 +24,7 @@ float Angle_STEP = 2.0f;
 float Velocity_step = 0.1f;
 const float MAX_VELOCITY = 20.f;
 GLuint carBodyVAO,carBodyVBO,carWinVAO,carWinVBO;
+GLuint carVAO,carVBO,caruvVBO , cartextureID;
 #define NUM_NPC  20
 struct NPCCar {
     float x, z;       
@@ -70,7 +71,7 @@ const int NUM_OF_BUILDS =  5;
 
 build buildings[NUM_OF_BUILDS];
 
-GLuint gModelLocation, gViewLocation, gProjectionLocation,gTextureLocation,gUseTexture;
+GLuint gModelLocation, gViewLocation, gProjectionLocation,gTextureLocation,gUseTexture,gLightPosLocation,gViewPosLocation;
 
 int buildingVertexCount1 = 0;
 
@@ -80,6 +81,7 @@ struct Vertex3D { float x, y, z; };
 //this function is to create a vertex array from the obj file exported from the blender
 vector<float> loadObjToFlatArray(string filepath) {
     vector<Vertex3D> temp_vertices;
+    vector<Vertex3D> temp_normals;
     vector<float> out_vertices;
     vector<pair<float,float>> temp_uv;
 
@@ -100,6 +102,11 @@ vector<float> loadObjToFlatArray(string filepath) {
             ss >> v.x >> v.y >> v.z;
             temp_vertices.push_back(v);
         }
+        else if (prefix == "vn") {
+            Vertex3D n;
+            ss >> n.x >> n.y >> n.z;
+            temp_normals.push_back(n);
+        }
         else if (prefix == "vt") {
             float u, v; ss >> u >> v;
             temp_uv.push_back({u, v});
@@ -110,22 +117,39 @@ vector<float> loadObjToFlatArray(string filepath) {
             
             if (!(ss >> v4)) { v4 = ""; }
 
-            auto getIndex = [](const std::string& token) {
-                return std::stoi(token.substr(0, token.find('/'))) - 1; // .obj indices start at 1
+            auto getIndices = [](const std::string& token) -> pair<int,int> {
+                // the format is the vi/vti/vni
+                // vertexindex/texturecord/normal
+                size_t s1 = token.find('/');
+                int vi = std::stoi(token.substr(0, s1)) - 1;
+                int ni = -1;
+                if (s1 != string::npos) {
+                    size_t s2 = token.find('/', s1 + 1);
+                    if (s2 != string::npos && s2 + 1 < token.size())
+                        ni = std::stoi(token.substr(s2 + 1)) - 1;
+                }
+                return {vi, ni};
             };
-
-            int i1 = getIndex(v1), i2 = getIndex(v2), i3 = getIndex(v3);
-
-            out_vertices.push_back(temp_vertices[i1].x); out_vertices.push_back(temp_vertices[i1].y); out_vertices.push_back(temp_vertices[i1].z);
-            out_vertices.push_back(temp_vertices[i2].x); out_vertices.push_back(temp_vertices[i2].y); out_vertices.push_back(temp_vertices[i2].z);
-            out_vertices.push_back(temp_vertices[i3].x); out_vertices.push_back(temp_vertices[i3].y); out_vertices.push_back(temp_vertices[i3].z);
-
+            auto pushVert = [&](const std::string& token) {
+                auto [vi, ni] = getIndices(token);
+                out_vertices.push_back(temp_vertices[vi].x);
+                out_vertices.push_back(temp_vertices[vi].y);
+                out_vertices.push_back(temp_vertices[vi].z);
+                if (ni >= 0 && ni < (int)temp_normals.size()) {
+                    out_vertices.push_back(temp_normals[ni].x);
+                    out_vertices.push_back(temp_normals[ni].y);
+                    out_vertices.push_back(temp_normals[ni].z);
+                } else {
+                    out_vertices.push_back(0.0f);   
+                    out_vertices.push_back(1.0f);
+                    out_vertices.push_back(0.0f);
+                }
+            };
+            pushVert(v1); pushVert(v2); pushVert(v3);
             if (!v4.empty()) {
-                int i4 = getIndex(v4);
-                out_vertices.push_back(temp_vertices[i1].x); out_vertices.push_back(temp_vertices[i1].y); out_vertices.push_back(temp_vertices[i1].z);
-                out_vertices.push_back(temp_vertices[i3].x); out_vertices.push_back(temp_vertices[i3].y); out_vertices.push_back(temp_vertices[i3].z);
-                out_vertices.push_back(temp_vertices[i4].x); out_vertices.push_back(temp_vertices[i4].y); out_vertices.push_back(temp_vertices[i4].z);
+                pushVert(v1); pushVert(v3); pushVert(v4);
             }
+            
         }
     }
     return out_vertices;
@@ -241,6 +265,8 @@ static void CompileShaders() {
     gProjectionLocation = glGetUniformLocation(ShaderProgram, "gProjection");
     gTextureLocation = glGetUniformLocation(ShaderProgram,"gTexture");
     gUseTexture         = glGetUniformLocation(ShaderProgram, "useTexture");
+    gLightPosLocation = glGetUniformLocation(ShaderProgram, "lightPos");
+    gViewPosLocation  = glGetUniformLocation(ShaderProgram, "viewPos");
 }
 void createViewMatrix(float *m, float eyeX, float eyeY, float eyeZ,
         float centerX, float centerY, float centerZ, float upX,
@@ -411,7 +437,7 @@ void display(){
     float followDistance = 12.0f; // how far behind the car the camera sits
     float cameraHeight = 5.0f;    // how high above the car the camera sits
     float eyeX = CAR_X - (followDistance * cos(rad));
-    float eyeY = CAR_Y + cameraHeight;
+    float eyeY = CAR_Y + cameraHeight + 10.0f;
     float eyeZ = CAR_Z + (followDistance * sin(rad));
     float targetX = CAR_X;
     float targetY = CAR_Y + 2.0f; 
@@ -419,6 +445,8 @@ void display(){
 
     createViewMatrix(view, eyeX, eyeY, eyeZ, targetX, targetY, targetZ, 0.0f, 1.0f, 0.0f);
     glUniformMatrix4fv(gViewLocation, 1, GL_FALSE, view);
+    glUniform3f(gLightPosLocation, CAR_X, CAR_Y + 0.5f, CAR_Z);  // light = car pos
+    glUniform3f(gViewPosLocation,  eyeX,  eyeY, eyeZ);   // camera pos
     float identity[16];
     setIdentity(identity);
     glUniformMatrix4fv(gModelLocation, 1, GL_FALSE, identity);
@@ -449,6 +477,15 @@ void display(){
         glDrawArrays(GL_TRIANGLES, 0, buildings[i].vertices_count);
 
     }
+
+    createModelMatrix(matrix,CAR_X+5.0f,CAR_Y,CAR_Z+5.0f,0.0f,1.f,1.f,1.f);
+    glUniformMatrix4fv(gModelLocation, 1, GL_FALSE, matrix);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, cartextureID);
+    glBindVertexArray(carVAO);
+    glDrawArrays(GL_TRIANGLES, 0, 100000);
+
+
     glUniform1i(gUseTexture, 0);
     //for the track
     createModelMatrix(matrix,0.0f,0.0f,0.0f,0.0f,3.0f,3.0f,3.0f);
@@ -634,6 +671,31 @@ void initAllBuffers()
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3*sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
 
+
+    vector <float> carvertices = loadObjToFlatArray("buildings/car.obj");
+    vector <pair<float,float>> carUV = loadUVToFlatArray("buildings/car.obj");
+    glGenVertexArrays(1, &carVAO);
+    glGenBuffers(1, &carVBO);
+    glBindVertexArray(carVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, carVBO);
+    glBufferData(GL_ARRAY_BUFFER, carvertices.size() * sizeof(float), carvertices.data(), GL_STATIC_DRAW);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)(3*sizeof(float)));
+    glEnableVertexAttribArray(1);
+
+    glGenBuffers(1, &caruvVBO);
+    glBindBuffer(GL_ARRAY_BUFFER, caruvVBO);
+    glBufferData(GL_ARRAY_BUFFER, carUV.size() * sizeof(pair<float,float>), carUV.data(), GL_STATIC_DRAW);
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 2*sizeof(float), (void*)0);
+    glEnableVertexAttribArray(2);
+
+    cartextureID = loadTexture("textures/car_diffuse.png");
+
+
+
+
+
     float trackVertical[] ={
         //left side
         0.0f,0.0f,0.0f,     3.0f,0.0f,0.0f,       0.0f,0.0f,30.0f,
@@ -665,7 +727,7 @@ void initAllBuffers()
         path += to_string(i+1);
         path += ".obj";
         buildings[i].vertices = loadObjToFlatArray(path);
-        buildings[i].vertices_count = buildings[i].vertices.size()/3;
+        buildings[i].vertices_count = buildings[i].vertices.size()/6;
         buildings[i].uvs = loadUVToFlatArray(path);
 
         //for the positions
@@ -674,14 +736,16 @@ void initAllBuffers()
         glBindVertexArray(buildings[i].VAO);
         glBindBuffer(GL_ARRAY_BUFFER, buildings[i].VBO);
         glBufferData(GL_ARRAY_BUFFER, buildings[i].vertices.size() * sizeof(float), buildings[i].vertices.data(), GL_STATIC_DRAW);
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3*sizeof(float), (void*)0);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)0);
         glEnableVertexAttribArray(0);
+        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)(3*sizeof(float)));
+        glEnableVertexAttribArray(1);
 
         glGenBuffers(1, &buildings[i].uvVBO);
         glBindBuffer(GL_ARRAY_BUFFER, buildings[i].uvVBO);
         glBufferData(GL_ARRAY_BUFFER, buildings[i].uvs.size() * sizeof(pair<float,float>), buildings[i].uvs.data(), GL_STATIC_DRAW);
-        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 2*sizeof(float), (void*)0);
-        glEnableVertexAttribArray(1);
+        glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 2*sizeof(float), (void*)0);
+        glEnableVertexAttribArray(2);
 
         buildings[i].textureID = loadTexture(textures[i]);
         glBindVertexArray(0);

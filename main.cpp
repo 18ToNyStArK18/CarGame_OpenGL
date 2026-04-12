@@ -19,12 +19,17 @@ float prevtime = 0.0f;
 //car variables
 float CAR_X=50.0f,CAR_Y=0,CAR_Z=0;
 float Velocity;
-float Angle=-90.0f;
+float Angle=0.0f;
 float Angle_STEP = 2.0f;
 float Velocity_step = 0.1f;
 const float MAX_VELOCITY = 20.f;
-GLuint carBodyVAO,carBodyVBO,carWinVAO,carWinVBO;
-GLuint carVAO,carVBO,caruvVBO , cartextureID;
+struct CAR {
+    GLuint carVAO,carVBO;
+    GLuint caruvVBO;
+    GLuint texture;
+    int vertices_count;
+};
+CAR carModel;
 #define NUM_NPC  20
 struct NPCCar {
     float x, z;       
@@ -380,7 +385,7 @@ void initNPCCars()
         t = (float)(rand() % 1000) / 1000.0f;
         npcCars[i].z = Z_MIN + t * (Z_MAX - Z_MIN);
 
-        npcCars[i].angle = -90.0f;
+        npcCars[i].angle = 180.0f-180.0*strip;
         npcCars[i].r     = NPC_COLORS[i%10][0];
         npcCars[i].g     = NPC_COLORS[i%10][1];
         npcCars[i].b     = NPC_COLORS[i%10][2];
@@ -414,7 +419,7 @@ void display(){
     float dt = currentTime - prevtime;
     prevtime = currentTime;
 
-    float rad = Angle * M_PI / 180.0f;
+    float rad = (-90.0f+Angle) * M_PI / 180.0f;
     if(dt < 0.05)
         dt = 0.05f;
     CAR_X += Velocity *cos(rad)*dt;
@@ -437,7 +442,7 @@ void display(){
     float followDistance = 12.0f; // how far behind the car the camera sits
     float cameraHeight = 5.0f;    // how high above the car the camera sits
     float eyeX = CAR_X - (followDistance * cos(rad));
-    float eyeY = CAR_Y + cameraHeight + 10.0f;
+    float eyeY = CAR_Y + cameraHeight;
     float eyeZ = CAR_Z + (followDistance * sin(rad));
     float targetX = CAR_X;
     float targetY = CAR_Y + 2.0f; 
@@ -451,23 +456,34 @@ void display(){
     setIdentity(identity);
     glUniformMatrix4fv(gModelLocation, 1, GL_FALSE, identity);
 
-    //for the car 
-    createModelMatrix(matrix,CAR_X,0.0,CAR_Z,Angle,1.0f,1.0f,1.0f);
-    glUniform3f(colorLoc, 1.0f, 0.0f, 0.0f);   // blue car
 
-    //for the body of the car
-    glUniformMatrix4fv(gModelLocation, 1, GL_FALSE, matrix);
-    glBindVertexArray(carBodyVAO);
-    glDrawArrays(GL_TRIANGLES, 0,200);
 
-    //for the windows of the car
-    glUniform3f(colorLoc, 0.8588f, 0.8823f, 0.8901f);
-    glBindVertexArray(carWinVAO);
-    glDrawArrays(GL_TRIANGLES, 0, 36);
-
-    //for all the buildings
     glUniform1i(gUseTexture, 1);
     glUniform1i(gTextureLocation, 0);
+
+    //for the car 
+    createModelMatrix(matrix,CAR_X,0.0f,CAR_Z,Angle,0.5f,0.5f,0.5f);
+    glUniformMatrix4fv(gModelLocation, 1, GL_FALSE, matrix);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, carModel.texture);
+    glBindVertexArray(carModel.carVAO);
+    glDrawArrays(GL_TRIANGLES, 0,carModel.vertices_count );
+
+    //npc npcCars
+    for (int i = 0; i < NUM_NPC; i++) {
+
+        createModelMatrix(matrix,npcCars[i].x,0.0f,npcCars[i].z,npcCars[i].angle,.50f, .50f, .50f);   // scale = 1
+        glUniformMatrix4fv(gModelLocation, 1, GL_FALSE, matrix);
+        glDrawArrays(GL_TRIANGLES, 0, 48);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, carModel.texture);
+        glBindVertexArray(carModel.carVAO);
+        glDrawArrays(GL_TRIANGLES, 0,carModel.vertices_count );
+
+
+    }
+
+    //for all the buildings
     for(int i=0;i<NUM_OF_BUILDS;i++){
         createModelMatrix(matrix,40.0f - (i%2)*25.0f,0.0,0.0f+i*20.0f,0.0,1.0f,1.00f,1.0f);
         glUniformMatrix4fv(gModelLocation, 1, GL_FALSE, matrix);
@@ -477,13 +493,6 @@ void display(){
         glDrawArrays(GL_TRIANGLES, 0, buildings[i].vertices_count);
 
     }
-
-    createModelMatrix(matrix,CAR_X+5.0f,CAR_Y,CAR_Z+5.0f,0.0f,1.f,1.f,1.f);
-    glUniformMatrix4fv(gModelLocation, 1, GL_FALSE, matrix);
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, cartextureID);
-    glBindVertexArray(carVAO);
-    glDrawArrays(GL_TRIANGLES, 0, 100000);
 
 
     glUniform1i(gUseTexture, 0);
@@ -499,20 +508,7 @@ void display(){
     glDrawArrays(GL_TRIANGLES, 0, ARC_SEGS * 6);
 
 
-    //npc npcCars
-    for (int i = 0; i < NUM_NPC; i++) {
 
-        createModelMatrix(matrix,npcCars[i].x,0.0f,npcCars[i].z,npcCars[i].angle,1.0f, 1.0f, 1.0f);   // scale = 1
-        glUniformMatrix4fv(gModelLocation, 1, GL_FALSE, matrix);
-
-        glUniform3f(colorLoc, npcCars[i].r, npcCars[i].g, npcCars[i].b);
-        glBindVertexArray(carBodyVAO);
-        glDrawArrays(GL_TRIANGLES, 0, 138);
-
-        glUniform3f(colorLoc, 0.8588f, 0.8823f, 0.8901f);
-        glBindVertexArray(carWinVAO);
-        glDrawArrays(GL_TRIANGLES, 0, 48);
-    }
     GLenum err = glGetError();
     if (err != GL_NO_ERROR)
         fprintf(stderr, "GL error: %u\n", err);
@@ -545,7 +541,7 @@ void keyboard(unsigned char key,int x,int y){
         Angle -= Angle_STEP;
     }
     if(key == 'a' || key == 'A'){
-        Angle += Angle_STEP;
+        Angle+= Angle_STEP;
     }
 
 }
@@ -569,129 +565,28 @@ void InitGlut(int argc,char ** argv){
 void initAllBuffers()
 {
 
-    float body[] = {
-
-        0.2f,0.4f,0.6f,  0.6f,0.5f,0.6f,  0.6f,0.5f,0.2f,
-        0.2f,0.4f,0.6f,  0.6f,0.5f,0.2f,  0.2f,0.4f,0.2f,
-        0.2f,0.2f,0.6f,  0.6f,0.2f,0.6f,  0.6f,0.2f,0.2f,
-        0.2f,0.2f,0.6f,  0.6f,0.2f,0.2f,  0.2f,0.2f,0.2f,
-        0.2f,0.2f,0.6f,  0.2f,0.4f,0.6f,  0.2f,0.4f,0.2f,
-        0.2f,0.2f,0.6f,  0.2f,0.4f,0.2f,  0.2f,0.2f,0.2f,
-        0.6f,0.2f,0.6f,  0.6f,0.5f,0.6f,  0.6f,0.5f,0.2f,
-        0.6f,0.2f,0.6f,  0.6f,0.5f,0.2f,  0.6f,0.2f,0.2f,
-        0.2f,0.2f,0.6f,  0.6f,0.2f,0.6f,  0.6f,0.5f,0.6f,
-        0.2f,0.2f,0.6f,  0.6f,0.5f,0.6f,  0.2f,0.4f,0.6f,
-        0.2f,0.2f,0.2f,  0.6f,0.2f,0.2f,  0.6f,0.5f,0.2f,
-        0.2f,0.2f,0.2f,  0.6f,0.5f,0.2f,  0.2f,0.4f,0.2f,
-        0.6f,0.5f,0.6f,  0.6f,0.2f,0.6f,  1.8f,0.2f,0.6f,
-        0.6f,0.5f,0.6f,  1.8f,0.2f,0.6f,  1.8f,0.5f,0.6f,
-        0.6f,0.2f,0.6f,  0.6f,0.2f,0.2f,  1.8f,0.2f,0.2f,
-        0.6f,0.2f,0.6f,  1.8f,0.2f,0.2f,  1.8f,0.2f,0.6f,
-        0.6f,0.5f,0.2f,  0.6f,0.2f,0.2f,  1.8f,0.2f,0.2f,
-        0.6f,0.5f,0.2f,  1.8f,0.2f,0.2f,  1.8f,0.5f,0.2f,
-        1.8f,0.5f,0.6f,  1.8f,0.5f,0.2f,  2.1f,0.4f,0.2f,
-        1.8f,0.5f,0.6f,  2.1f,0.4f,0.2f,  2.1f,0.4f,0.6f,
-        2.1f,0.2f,0.6f,  2.1f,0.2f,0.2f,  1.8f,0.2f,0.2f,
-        2.1f,0.2f,0.6f,  1.8f,0.2f,0.2f,  1.8f,0.2f,0.6f,
-        2.1f,0.4f,0.6f,  2.1f,0.4f,0.2f,  2.1f,0.2f,0.2f,
-        2.1f,0.4f,0.6f,  2.1f,0.2f,0.2f,  2.1f,0.2f,0.6f,
-        1.8f,0.2f,0.6f,  1.8f,0.5f,0.6f,  2.1f,0.4f,0.6f,
-        1.8f,0.2f,0.6f,  2.1f,0.4f,0.6f,  2.1f,0.2f,0.6f,
-        1.8f,0.2f,0.2f,  1.8f,0.5f,0.2f,  2.1f,0.4f,0.2f,
-        1.8f,0.2f,0.2f,  2.1f,0.4f,0.2f,  2.1f,0.2f,0.2f,
-        0.7f,0.65f,0.6f,  0.7f,0.65f,0.2f,  1.7f,0.65f,0.2f,
-        0.7f,0.65f,0.6f,  1.7,0.65f,0.2f,  1.7f,0.65f,0.6f,
-        0.7f,0.65f,0.2f,  0.7f,0.5f,0.2f,  0.75f,0.5f,0.2f,
-        0.7f,0.65f,0.2f,  0.75f,0.5f,0.2f, 0.77f,0.65f,0.2f,
-        1.2f,0.65f,0.2f,  1.2f,0.5f,0.2f,  1.25f,0.5f,0.2f,
-        1.2f,0.65f,0.2f,  1.25f,0.5f,0.2f, 1.27f,0.65f,0.2f,
-        1.65f,0.65f,0.2f, 1.65f,0.5f,0.2f, 1.7f,0.5f,0.2f,
-        1.65f,0.65f,0.2f, 1.7f,0.5f,0.2f,  1.7f,0.65f,0.2f,
-        0.75f,0.65f,0.2f, 0.75f,0.63f,0.2f, 1.7f,0.63f,0.2f,
-        0.75f,0.65f,0.2f, 1.7f,0.63f,0.2f,  1.7f,0.65f,0.2f,
-        0.7f,0.65f,0.6f,  0.7f,0.5f,0.6f,  0.75f,0.5f,0.6f,
-        0.7f,0.65f,0.6f,  0.75f,0.5f,0.6f, 0.77f,0.65f,0.6f,
-        1.2f,0.65f,0.6f,  1.2f,0.5f,0.6f,  1.25f,0.5f,0.6f,
-        1.2f,0.65f,0.6f,  1.25f,0.5f,0.6f, 1.27f,0.65f,0.6f,
-        1.65f,0.65f,0.6f, 1.65f,0.5f,0.6f, 1.7f,0.5f,0.6f,
-        1.65f,0.65f,0.6f, 1.7f,0.5f,0.6f,  1.7f,0.65f,0.6f,
-        0.75f,0.65f,0.6f, 0.75f,0.63f,0.6f, 1.7f,0.63f,0.6f,
-        0.75f,0.65f,0.6f, 1.7f,0.63f,0.6f,  1.7f,0.65f,0.6f,
-    };
-
-    glGenVertexArrays(1, &carBodyVAO);
-    glGenBuffers(1, &carBodyVBO);
-    glBindVertexArray(carBodyVAO);
-    glBindBuffer(GL_ARRAY_BUFFER, carBodyVBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(body), body, GL_STATIC_DRAW);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3*sizeof(float), (void*)0);
-    glEnableVertexAttribArray(0);
-
-    float windows[] = {
-
-        // front window
-        0.77f,0.63f,0.2f, 0.75f,0.5f,0.2f, 1.2f,0.5f,0.2f,
-        0.77f,0.63f,0.2f, 1.2f,0.5f,0.2f,  1.22f,0.63f,0.2f,
-
-        // rear window
-        1.27f,0.63f,0.2f, 1.25f,0.5f,0.2f, 1.65f,0.5f,0.2f,
-        1.27f,0.63f,0.2f, 1.65f,0.5f,0.2f, 1.67f,0.63f,0.2f,
-
-        // front window
-        0.77f,0.63f,0.6f, 0.75f,0.5f,0.6f, 1.2f,0.5f,0.6f,
-        0.77f,0.63f,0.6f, 1.2f,0.5f,0.6f,  1.22f,0.63f,0.6f,
-
-        // rear window
-        1.27f,0.63f,0.6f, 1.25f,0.5f,0.6f, 1.65f,0.5f,0.6f,
-        1.27f,0.63f,0.6f, 1.65f,0.5f,0.6f, 1.67f,0.63f,0.6f,
-
-        // ── front windshield (angled quad) ──────────────────────
-        0.6f,0.5f,0.6f,  0.6f,0.5f,0.2f,  0.7f,0.65f,0.2f,
-        0.6f,0.5f,0.6f,  0.7f,0.65f,0.2f, 0.7f,0.65f,0.6f,
-
-        // ── rear windshield (angled quad) ───────────────────────
-        1.7f,0.65f,0.6f, 1.7f,0.65f,0.2f, 1.8f,0.5f,0.2f,
-        1.7f,0.65f,0.6f, 1.8f,0.5f,0.2f,  1.8f,0.5f,0.6f,
-
-        // front left corner (z=0.6 side)
-        0.6f,0.5f,0.6f,  0.7f,0.65f,0.6f, 0.7f,0.5f,0.6f,
-        // front right corner (z=0.2 side)
-        0.6f,0.5f,0.2f,  0.7f,0.65f,0.2f, 0.7f,0.5f,0.2f,
-        // rear left corner (z=0.2 side)
-        1.7f,0.65f,0.2f, 1.8f,0.5f,0.2f,  1.7f,0.5f,0.2f,
-        // rear right corner (z=0.6 side)
-        1.7f,0.65f,0.6f, 1.8f,0.5f,0.6f,  1.7f,0.5f,0.6f,
-    };
-
-    glGenVertexArrays(1, &carWinVAO);
-    glGenBuffers(1, &carWinVBO);
-    glBindVertexArray(carWinVAO);
-    glBindBuffer(GL_ARRAY_BUFFER, carWinVBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(windows), windows, GL_STATIC_DRAW);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3*sizeof(float), (void*)0);
-    glEnableVertexAttribArray(0);
-
-
+    
     vector <float> carvertices = loadObjToFlatArray("buildings/car.obj");
     vector <pair<float,float>> carUV = loadUVToFlatArray("buildings/car.obj");
-    glGenVertexArrays(1, &carVAO);
-    glGenBuffers(1, &carVBO);
-    glBindVertexArray(carVAO);
-    glBindBuffer(GL_ARRAY_BUFFER, carVBO);
+    glGenVertexArrays(1, &carModel.carVAO);
+    glGenBuffers(1, &carModel.carVBO);
+    glBindVertexArray(carModel.carVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, carModel.carVBO);
     glBufferData(GL_ARRAY_BUFFER, carvertices.size() * sizeof(float), carvertices.data(), GL_STATIC_DRAW);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)(3*sizeof(float)));
     glEnableVertexAttribArray(1);
 
-    glGenBuffers(1, &caruvVBO);
-    glBindBuffer(GL_ARRAY_BUFFER, caruvVBO);
+    glGenBuffers(1, &carModel.caruvVBO);
+    glBindBuffer(GL_ARRAY_BUFFER, carModel.caruvVBO);
     glBufferData(GL_ARRAY_BUFFER, carUV.size() * sizeof(pair<float,float>), carUV.data(), GL_STATIC_DRAW);
     glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 2*sizeof(float), (void*)0);
     glEnableVertexAttribArray(2);
 
-    cartextureID = loadTexture("textures/car_diffuse.png");
+    carModel.texture = loadTexture("textures/car_diffuse.png");
 
+    carModel.vertices_count = carvertices.size()/6;
 
 
 

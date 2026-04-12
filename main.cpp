@@ -8,6 +8,8 @@
 #include <SFML/Audio.hpp>
 #include <sstream>
 
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
 #include "file_utils.h"
 GLuint ShaderProgram;
 
@@ -30,7 +32,7 @@ struct NPCCar {
 };
 NPCCar npcCars[NUM_NPC];
 
-static const float NPC_COLORS[NUM_NPC][3] = {
+static const float NPC_COLORS[10][3] = {
     {1.0f, 0.2f, 0.2f},   // red
     {0.2f, 1.0f, 0.2f},   // green
     {1.0f, 0.6f, 0.0f},   // orange
@@ -56,16 +58,19 @@ const float ARC_INNER = 6.0f;
 
 struct build {
     GLuint VAO , VBO;
+    GLuint uvVBO;
     float x,z;
     float sx,sy,sz;
     vector<float> vertices;
+    vector<pair<float,float>> uvs;
     int vertices_count;
+    GLuint textureID;
 };
 const int NUM_OF_BUILDS =  5;
 
 build buildings[NUM_OF_BUILDS];
 
-GLuint gModelLocation, gViewLocation, gProjectionLocation;
+GLuint gModelLocation, gViewLocation, gProjectionLocation,gTextureLocation,gUseTexture;
 
 int buildingVertexCount1 = 0;
 
@@ -76,6 +81,7 @@ struct Vertex3D { float x, y, z; };
 vector<float> loadObjToFlatArray(string filepath) {
     vector<Vertex3D> temp_vertices;
     vector<float> out_vertices;
+    vector<pair<float,float>> temp_uv;
 
     ifstream file(filepath);
     if (!file.is_open()) {
@@ -93,7 +99,11 @@ vector<float> loadObjToFlatArray(string filepath) {
             Vertex3D v;
             ss >> v.x >> v.y >> v.z;
             temp_vertices.push_back(v);
-        } 
+        }
+        else if (prefix == "vt") {
+            float u, v; ss >> u >> v;
+            temp_uv.push_back({u, v});
+        }
         else if (prefix == "f") {
             std::string v1, v2, v3, v4;
             ss >> v1 >> v2 >> v3;
@@ -119,6 +129,60 @@ vector<float> loadObjToFlatArray(string filepath) {
         }
     }
     return out_vertices;
+}
+vector<pair<float,float>> loadUVToFlatArray(string filepath) {
+
+
+    //file has the uv verices after the prefix vt
+    //in the line which has the f as the prefix it contains something like this a/b where a indicated the vertex a uses the uv at bth index;
+    vector<pair<float,float>> temp_uv;
+
+    vector<pair<float,float>> out_uv;
+
+    ifstream file(filepath);
+    if (!file.is_open()) {
+        cerr << "Failed to open " << filepath << endl;
+        return out_uv;
+    }
+
+    auto getUVIndex = [](const string& token) -> int {
+        size_t s1 = token.find('/');
+        if (s1 == string::npos) return -1;        
+        size_t s2 = token.find('/', s1 + 1);
+        string uvStr = token.substr(s1 + 1, s2 - s1 - 1);
+        if (uvStr.empty()) return -1;             
+        return stoi(uvStr) - 1;                      
+    };
+
+    auto pushUV = [&](const string& token) {
+        int ti = getUVIndex(token);
+        if (ti >= 0 && ti < (int)temp_uv.size())
+            out_uv.push_back(temp_uv[ti]);
+        else
+            out_uv.push_back({0.0f, 0.0f});
+    };
+
+    string line;
+    while (getline(file, line)) {
+        stringstream ss(line);
+        string prefix;
+        ss >> prefix;
+
+        if (prefix == "vt") {
+            float u, v;
+            ss >> u >> v;
+            temp_uv.push_back({u, v});
+        }
+        else if (prefix == "f") {
+            string t1, t2, t3, t4;
+            ss >> t1 >> t2 >> t3;
+            pushUV(t1); pushUV(t2); pushUV(t3);  
+            if (ss >> t4) {                      
+                pushUV(t1); pushUV(t3); pushUV(t4);
+            }
+        }
+    }
+    return out_uv;
 }
 
 static void AddShader(GLuint ShaderProgram, const char* pShaderText , GLenum ShaderType){
@@ -175,6 +239,8 @@ static void CompileShaders() {
     gModelLocation = glGetUniformLocation(ShaderProgram, "gModel");
     gViewLocation = glGetUniformLocation(ShaderProgram, "gView");
     gProjectionLocation = glGetUniformLocation(ShaderProgram, "gProjection");
+    gTextureLocation = glGetUniformLocation(ShaderProgram,"gTexture");
+    gUseTexture         = glGetUniformLocation(ShaderProgram, "useTexture");
 }
 void createViewMatrix(float *m, float eyeX, float eyeY, float eyeZ,
         float centerX, float centerY, float centerZ, float upX,
@@ -294,11 +360,32 @@ void initNPCCars()
         npcCars[i].b     = NPC_COLORS[i%10][2];
     }
 }
+GLuint loadTexture(string path) {
+    int w, h, ch;
+    stbi_set_flip_vertically_on_load(true);   
+    unsigned char* data = stbi_load(path.c_str(), &w, &h, &ch, 0);
+    if (!data) {
+        fprintf(stderr, "Failed to load texture: %s\n", path.c_str());
+        return 0;
+    }
+    GLenum fmt = (ch == 4) ? GL_RGBA : GL_RGB;
+    GLuint id;
+    glGenTextures(1, &id);
+    glBindTexture(GL_TEXTURE_2D, id);
+    glTexImage2D(GL_TEXTURE_2D, 0, fmt, w, h, 0, fmt, GL_UNSIGNED_BYTE, data);
+    glGenerateMipmap(GL_TEXTURE_2D);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    stbi_image_free(data);
+    return id;
+}
 
 void display(){
 
     float currentTime = glutGet(GLUT_ELAPSED_TIME)/1000.0f;
-    float dt = currentTime = prevtime;
+    float dt = currentTime - prevtime;
     prevtime = currentTime;
 
     float rad = Angle * M_PI / 180.0f;
@@ -343,7 +430,7 @@ void display(){
     //for the body of the car
     glUniformMatrix4fv(gModelLocation, 1, GL_FALSE, matrix);
     glBindVertexArray(carBodyVAO);
-    glDrawArrays(GL_TRIANGLES, 0, 200);
+    glDrawArrays(GL_TRIANGLES, 0,200);
 
     //for the windows of the car
     glUniform3f(colorLoc, 0.8588f, 0.8823f, 0.8901f);
@@ -351,14 +438,18 @@ void display(){
     glDrawArrays(GL_TRIANGLES, 0, 36);
 
     //for all the buildings
+    glUniform1i(gUseTexture, 1);
+    glUniform1i(gTextureLocation, 0);
     for(int i=0;i<NUM_OF_BUILDS;i++){
-        createModelMatrix(matrix,40.0f - (i%2)*25.0f,0.0,0.0f+i*20.0f,0.0,0.50f,0.50f,0.50f);
-        glUniform3f(colorLoc, 1.0f, 0.0f, 0.0f);   
+        createModelMatrix(matrix,40.0f - (i%2)*25.0f,0.0,0.0f+i*20.0f,0.0,1.0f,1.00f,1.0f);
         glUniformMatrix4fv(gModelLocation, 1, GL_FALSE, matrix);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, buildings[i].textureID);
         glBindVertexArray(buildings[i].VAO);
         glDrawArrays(GL_TRIANGLES, 0, buildings[i].vertices_count);
 
     }
+    glUniform1i(gUseTexture, 0);
     //for the track
     createModelMatrix(matrix,0.0f,0.0f,0.0f,0.0f,3.0f,3.0f,3.0f);
     glUniformMatrix4fv(gModelLocation, 1, GL_FALSE, matrix);
@@ -561,6 +652,13 @@ void initAllBuffers()
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3*sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
 
+    string textures[] = {
+        "textures/build1.jpg",
+        "textures/build2.jpg",
+        "textures/build3.jpg",
+        "textures/build4.jpg",
+        "textures/build5.jpg"
+    };
     //for the buildings
     for(int i=0;i<NUM_OF_BUILDS;i++){
         string path = "buildings/building";
@@ -568,6 +666,9 @@ void initAllBuffers()
         path += ".obj";
         buildings[i].vertices = loadObjToFlatArray(path);
         buildings[i].vertices_count = buildings[i].vertices.size()/3;
+        buildings[i].uvs = loadUVToFlatArray(path);
+
+        //for the positions
         glGenVertexArrays(1, &buildings[i].VAO);
         glGenBuffers(1, &buildings[i].VBO);
         glBindVertexArray(buildings[i].VAO);
@@ -576,6 +677,14 @@ void initAllBuffers()
         glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3*sizeof(float), (void*)0);
         glEnableVertexAttribArray(0);
 
+        glGenBuffers(1, &buildings[i].uvVBO);
+        glBindBuffer(GL_ARRAY_BUFFER, buildings[i].uvVBO);
+        glBufferData(GL_ARRAY_BUFFER, buildings[i].uvs.size() * sizeof(pair<float,float>), buildings[i].uvs.data(), GL_STATIC_DRAW);
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 2*sizeof(float), (void*)0);
+        glEnableVertexAttribArray(1);
+
+        buildings[i].textureID = loadTexture(textures[i]);
+        glBindVertexArray(0);
     }
 
     float top[ARC_SEGS * 6 * 3];   // 6 verts per slice × 3 floats

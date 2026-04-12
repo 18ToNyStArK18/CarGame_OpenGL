@@ -30,6 +30,7 @@ struct CAR {
     int vertices_count;
 };
 CAR carModel;
+CAR npcModel;
 #define NUM_NPC  20
 struct NPCCar {
     float x, z;       
@@ -37,7 +38,6 @@ struct NPCCar {
     float r, g, b;    
 };
 NPCCar npcCars[NUM_NPC];
-
 static const float NPC_COLORS[10][3] = {
     {1.0f, 0.2f, 0.2f},   // red
     {0.2f, 1.0f, 0.2f},   // green
@@ -50,6 +50,10 @@ static const float NPC_COLORS[10][3] = {
     {0.2f, 0.4f, 1.0f},   // blue
     {1.0f, 0.9f, 0.7f},   // cream
 };
+bool boost = false;
+float boost_time = 0;
+
+
 //track variables
 
 GLuint trackVerticalVAO,trackVerticalVBO;
@@ -58,6 +62,14 @@ const int   ARC_SEGS  = 30;
 const float ARC_CX    = 9.0f;      
 const float ARC_OUTER = 9.0f;
 const float ARC_INNER = 6.0f;
+
+//for the hitboxes
+const float PLAYER_HALF_W = 0.5f;   // player car X
+const float PLAYER_HALF_L = 1.0f;   // player car Z
+const float NPC_HALF_W    = 0.4f;   // npc car X
+const float NPC_HALF_L    = 0.9f;   // npc car Z
+bool showHitboxes = false;
+GLuint hitboxVAO, hitboxVBO;
 
 
 //for the building
@@ -76,13 +88,71 @@ const int NUM_OF_BUILDS =  5;
 
 build buildings[NUM_OF_BUILDS];
 
-GLuint gModelLocation, gViewLocation, gProjectionLocation,gTextureLocation,gUseTexture,gLightPosLocation,gViewPosLocation;
+GLuint gModelLocation, gViewLocation, gProjectionLocation,gTextureLocation,gUseTexture,gLightPosLocation,gViewPosLocation,gUseShine;
 
 int buildingVertexCount1 = 0;
 
 struct Vertex3D { float x, y, z; };
 
+void playCollsionsound() {
+  static sf::Music music;
+  if (music.getStatus() != sf::Music::Playing) {
+    music.openFromFile("collsion.mp3");
+    music.play();
+  }
+}
+void playHornsound() {
+  static sf::Music music;
+  if (music.getStatus() != sf::Music::Playing) {
+    music.openFromFile("horn.mp3");
+    music.play();
+  }
+}
+void initNPCCars()
+{
+    const float LEFT_X_MIN  =  0.5f;   const float LEFT_X_MAX  =  6.5f;
+    const float RIGHT_X_MIN = 45.5f;   const float RIGHT_X_MAX = 51.5f;
+    const float Z_MIN       =  5.0f;   const float Z_MAX       = 85.0f;
 
+    for (int i = 0; i < NUM_NPC; i++) {
+
+        int strip = rand() % 2;
+
+        float xMin = (strip == 0) ? LEFT_X_MIN  : RIGHT_X_MIN;
+        float xMax = (strip == 0) ? LEFT_X_MAX  : RIGHT_X_MAX;
+
+        float t = (float)(rand() % 1000) / 1000.0f;
+        npcCars[i].x = xMin + t * (xMax - xMin);
+
+        t = (float)(rand() % 1000) / 1000.0f;
+        npcCars[i].z = Z_MIN + t * (Z_MAX - Z_MIN);
+
+        npcCars[i].angle = 180.0f-180.0*strip;
+        npcCars[i].r     = NPC_COLORS[i%10][0];
+        npcCars[i].g     = NPC_COLORS[i%10][1];
+        npcCars[i].b     = NPC_COLORS[i%10][2];
+    }
+}
+bool checkCollision(float ax, float az, float bx, float bz) {
+    return (fabs(ax - bx) < (PLAYER_HALF_W + NPC_HALF_W)) &&
+           (fabs(az - bz) < (PLAYER_HALF_L + NPC_HALF_L));
+}
+
+void checkCollisions() {
+    for (int i = 0; i < NUM_NPC; i++) {
+        if (checkCollision(CAR_X, CAR_Z, npcCars[i].x, npcCars[i].z)) {
+            CAR_X = 50.0f;
+            CAR_Y = 0.0f;
+            CAR_Z = 0.0f;
+            Velocity = 0.0f;
+            Angle = 0.0f;
+            initNPCCars();
+            boost = false;
+            playCollsionsound();
+            return; 
+        }
+    }
+}
 //this function is to create a vertex array from the obj file exported from the blender
 vector<float> loadObjToFlatArray(string filepath) {
     vector<Vertex3D> temp_vertices;
@@ -272,6 +342,7 @@ static void CompileShaders() {
     gUseTexture         = glGetUniformLocation(ShaderProgram, "useTexture");
     gLightPosLocation = glGetUniformLocation(ShaderProgram, "lightPos");
     gViewPosLocation  = glGetUniformLocation(ShaderProgram, "viewPos");
+    gUseShine         = glGetUniformLocation(ShaderProgram,"useShine");
 }
 void createViewMatrix(float *m, float eyeX, float eyeY, float eyeZ,
         float centerX, float centerY, float centerZ, float upX,
@@ -366,31 +437,7 @@ void createProjectionMatrix(float *m, float l, float r, float b, float t,
     m[14] = -(2.0f * f * n) / (f - n);
 }
 
-void initNPCCars()
-{
-    const float LEFT_X_MIN  =  0.5f;   const float LEFT_X_MAX  =  6.5f;
-    const float RIGHT_X_MIN = 45.5f;   const float RIGHT_X_MAX = 51.5f;
-    const float Z_MIN       =  5.0f;   const float Z_MAX       = 85.0f;
 
-    for (int i = 0; i < NUM_NPC; i++) {
-
-        int strip = rand() % 2;
-
-        float xMin = (strip == 0) ? LEFT_X_MIN  : RIGHT_X_MIN;
-        float xMax = (strip == 0) ? LEFT_X_MAX  : RIGHT_X_MAX;
-
-        float t = (float)(rand() % 1000) / 1000.0f;
-        npcCars[i].x = xMin + t * (xMax - xMin);
-
-        t = (float)(rand() % 1000) / 1000.0f;
-        npcCars[i].z = Z_MIN + t * (Z_MAX - Z_MIN);
-
-        npcCars[i].angle = 180.0f-180.0*strip;
-        npcCars[i].r     = NPC_COLORS[i%10][0];
-        npcCars[i].g     = NPC_COLORS[i%10][1];
-        npcCars[i].b     = NPC_COLORS[i%10][2];
-    }
-}
 GLuint loadTexture(string path) {
     int w, h, ch;
     stbi_set_flip_vertically_on_load(true);   
@@ -412,18 +459,45 @@ GLuint loadTexture(string path) {
     stbi_image_free(data);
     return id;
 }
+void drawHitbox(float cx, float cy, float cz, float hw, float hl, float height,
+        float r, float g, float b,int flag) {
+    GLint colorLoc = glGetUniformLocation(ShaderProgram, "objectColor");
+    glUniform3f(colorLoc, r, g, b);
+    glUniform1i(gUseTexture, 0);
+    glUniform1i(gUseShine,   0);
+
+    float m[16];
+    if(flag)    
+        createModelMatrix(m,cx,cy,cz,Angle,hw,height,hl); 
+    else    
+        createModelMatrix(m,cx,cy,cz,0.0f,hw,height,hl); 
+    glUniformMatrix4fv(gModelLocation, 1, GL_FALSE, m);
+    glBindVertexArray(hitboxVAO);
+    glDrawArrays(GL_LINES, 0, 24);
+}
 
 void display(){
+
 
     float currentTime = glutGet(GLUT_ELAPSED_TIME)/1000.0f;
     float dt = currentTime - prevtime;
     prevtime = currentTime;
+    if(currentTime - boost_time >= 1.0f)
+        boost = false;
 
     float rad = (-90.0f+Angle) * M_PI / 180.0f;
     if(dt < 0.05)
         dt = 0.05f;
-    CAR_X += Velocity *cos(rad)*dt;
-    CAR_Z -= Velocity * sin(rad)*dt;
+    if(!boost){
+        CAR_X += Velocity *cos(rad)*dt;
+        CAR_Z -= Velocity * sin(rad)*dt;
+    }
+    else{
+        CAR_X += min(5*Velocity,10.0f) *cos(rad)*dt;
+        CAR_Z -= min(5*Velocity,10.0f) * sin(rad)*dt;
+
+    }
+    checkCollisions();
     glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT| GL_DEPTH_BUFFER_BIT);
 
@@ -435,6 +509,10 @@ void display(){
     float n = 1.0f, f = 100.0f;
     float r = 0.45f, l = -0.45f;
     float t = 0.45f, b = -0.45f;
+    if(boost){
+        f += 5.5f;
+        n -= 0.5f;
+    }
     createProjectionMatrix(proj, l, r, b, t, n, f);
     glUniformMatrix4fv(gProjectionLocation, 1, GL_FALSE, proj);
     // this to create the view matrix for the camera
@@ -456,32 +534,30 @@ void display(){
     setIdentity(identity);
     glUniformMatrix4fv(gModelLocation, 1, GL_FALSE, identity);
 
+    if (showHitboxes) {
+        drawHitbox(CAR_X, 0.0f, CAR_Z,
+                PLAYER_HALF_W, PLAYER_HALF_L, 0.6f,
+                0.0f, 1.0f, 0.0f,1);
 
+        for (int i = 0; i < NUM_NPC; i++) {
+            drawHitbox(npcCars[i].x, 0.0f, npcCars[i].z,
+                    NPC_HALF_W, NPC_HALF_L, 0.6f,
+                    1.0f, 0.0f, 0.0f,0);
+        }
+    }
 
     glUniform1i(gUseTexture, 1);
     glUniform1i(gTextureLocation, 0);
 
     //for the car 
-    createModelMatrix(matrix,CAR_X,0.0f,CAR_Z,Angle,0.5f,0.5f,0.5f);
+    createModelMatrix(matrix,CAR_X,0.10f,CAR_Z,Angle,0.5f,0.5f,0.5f);
     glUniformMatrix4fv(gModelLocation, 1, GL_FALSE, matrix);
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, carModel.texture);
     glBindVertexArray(carModel.carVAO);
     glDrawArrays(GL_TRIANGLES, 0,carModel.vertices_count );
 
-    //npc npcCars
-    for (int i = 0; i < NUM_NPC; i++) {
 
-        createModelMatrix(matrix,npcCars[i].x,0.0f,npcCars[i].z,npcCars[i].angle,.50f, .50f, .50f);   // scale = 1
-        glUniformMatrix4fv(gModelLocation, 1, GL_FALSE, matrix);
-        glDrawArrays(GL_TRIANGLES, 0, 48);
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, carModel.texture);
-        glBindVertexArray(carModel.carVAO);
-        glDrawArrays(GL_TRIANGLES, 0,carModel.vertices_count );
-
-
-    }
 
     //for all the buildings
     for(int i=0;i<NUM_OF_BUILDS;i++){
@@ -496,6 +572,19 @@ void display(){
 
 
     glUniform1i(gUseTexture, 0);
+
+    //npc cars
+    glUniform1i(gUseShine,1);
+    for (int i = 0; i < NUM_NPC; i++) {
+
+        createModelMatrix(matrix,npcCars[i].x,0.0f,npcCars[i].z,npcCars[i].angle,.50f, .50f, .50f);   // scale = 1
+        glUniformMatrix4fv(gModelLocation, 1, GL_FALSE, matrix);
+        glUniform3f(colorLoc,npcCars[i].r,npcCars[i].b,npcCars[i].g);
+        glBindVertexArray(npcModel.carVAO);
+        glDrawArrays(GL_TRIANGLES, 0,npcModel.vertices_count );
+
+
+    }
     //for the track
     createModelMatrix(matrix,0.0f,0.0f,0.0f,0.0f,3.0f,3.0f,3.0f);
     glUniformMatrix4fv(gModelLocation, 1, GL_FALSE, matrix);
@@ -506,6 +595,8 @@ void display(){
     glDrawArrays(GL_TRIANGLES, 0, ARC_SEGS * 6);
     glBindVertexArray(trackBottomArcVAO);
     glDrawArrays(GL_TRIANGLES, 0, ARC_SEGS * 6);
+
+    glUniform1i(gUseShine,0);
 
 
 
@@ -523,7 +614,6 @@ static void reshape(int w,int h){
 }
 
 void mouse(int button , int state , int x , int y){
-
 
 }
 
@@ -543,7 +633,16 @@ void keyboard(unsigned char key,int x,int y){
     if(key == 'a' || key == 'A'){
         Angle+= Angle_STEP;
     }
+    if(key == 'b' || key == 'B')
+        showHitboxes = !showHitboxes;
 
+    if(key == 'h' || key == 'H')
+        playHornsound();
+
+    if(key == ' ' && !boost){
+        boost = true;
+        boost_time = glutGet(GLUT_ELAPSED_TIME)/1000.0f;
+    }
 }
 
 void InitGlut(int argc,char ** argv){
@@ -565,7 +664,29 @@ void InitGlut(int argc,char ** argv){
 void initAllBuffers()
 {
 
-    
+    float boxLines[] = {
+        -1,0,-1,  1,0,-1,
+        1,0,-1,  1,0, 1,
+        1,0, 1, -1,0, 1,
+        -1,0, 1, -1,0,-1,
+        -1,1,-1,  1,1,-1,
+        1,1,-1,  1,1, 1,
+        1,1, 1, -1,1, 1,
+        -1,1, 1, -1,1,-1,
+        -1,0,-1, -1,1,-1,
+        1,0,-1,  1,1,-1,
+        1,0, 1,  1,1, 1,
+        -1,0, 1, -1,1, 1,
+    };
+    glGenVertexArrays(1, &hitboxVAO);
+    glGenBuffers(1, &hitboxVBO);
+    glBindVertexArray(hitboxVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, hitboxVBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(boxLines), boxLines, GL_STATIC_DRAW);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3*sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+    glBindVertexArray(0);
+
     vector <float> carvertices = loadObjToFlatArray("buildings/car.obj");
     vector <pair<float,float>> carUV = loadUVToFlatArray("buildings/car.obj");
     glGenVertexArrays(1, &carModel.carVAO);
@@ -588,6 +709,26 @@ void initAllBuffers()
 
     carModel.vertices_count = carvertices.size()/6;
 
+    vector <float> npcvertices = loadObjToFlatArray("buildings/car2.obj");
+    vector <pair<float,float>> npcUV = loadUVToFlatArray("buildings/car2.obj");
+    glGenVertexArrays(1, &npcModel.carVAO);
+    glGenBuffers(1, &npcModel.carVBO);
+    glBindVertexArray(npcModel.carVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, npcModel.carVBO);
+    glBufferData(GL_ARRAY_BUFFER, npcvertices.size() * sizeof(float), npcvertices.data(), GL_STATIC_DRAW);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)(3*sizeof(float)));
+    glEnableVertexAttribArray(1);
+
+    glGenBuffers(1, &npcModel.caruvVBO);
+    glBindBuffer(GL_ARRAY_BUFFER, npcModel.caruvVBO);
+    glBufferData(GL_ARRAY_BUFFER, npcUV.size() * sizeof(pair<float,float>), npcUV.data(), GL_STATIC_DRAW);
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 2*sizeof(float), (void*)0);
+    glEnableVertexAttribArray(2);
+
+
+    npcModel.vertices_count = npcvertices.size()/6;
 
 
 

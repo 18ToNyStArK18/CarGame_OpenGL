@@ -7,6 +7,7 @@ uniform vec3      objectColor;
 uniform sampler2D gTexture;
 uniform bool      useTexture;
 uniform bool      useShine;
+uniform bool      isLight;
 uniform vec3      viewPos;
 
 // multiple lights
@@ -40,4 +41,6 @@ void main() {
     }
 
     FragColor = vec4(result, 1.0);
+    if(isLight)
+        FragColor = vec4(objectColor,1.0);
 }

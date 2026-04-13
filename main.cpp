@@ -15,6 +15,20 @@ GLuint ShaderProgram;
 
 
 float prevtime = 0.0f;
+//windmill
+float windmillAngle = 0.0f;       
+float windmillSpeed = 45.0f;      
+GLuint windmillVAO, windmillVBO;
+int windmillVertCount = 0;
+
+//wall
+const float SCENE_X_MIN = -15.0f;
+const float SCENE_X_MAX = 65.0f;
+const float SCENE_Z_MIN = -30.0f;
+const float SCENE_Z_MAX = 120.0f;
+
+GLuint wallVAO, wallVBO;
+int wallVertCount = 0;
 
 //car variables
 float CAR_X=50.0f,CAR_Y=0,CAR_Z=0;
@@ -31,7 +45,7 @@ struct CAR {
 };
 CAR carModel;
 CAR npcModel;
-#define NUM_NPC  20
+#define NUM_NPC  10
 struct NPCCar {
     float x, z;       
     float angle;      
@@ -53,6 +67,8 @@ static const float NPC_COLORS[10][3] = {
 bool boost = false;
 float boost_time = 0;
 
+const float BUILD_HALF_W  = 2.5f;   
+const float BUILD_HALF_L  = 2.5f;
 
 //track variables
 
@@ -92,7 +108,21 @@ struct build {
 const int NUM_OF_BUILDS =  5;
 
 build buildings[NUM_OF_BUILDS];
+vector <float> buildheights = {7.59411,8.98195,18.5,7.3438,9.3355};
+struct BuildingHitbox {
+    float offsetX; 
+    float offsetZ; 
+    float halfW;   
+    float halfL;   
+};
 
+const BuildingHitbox buildHitboxes[NUM_OF_BUILDS] = {
+    {-0.53f, -0.14f, 1.74f, 1.55f}, 
+    { 0.18f,  0.11f, 3.32f, 2.79f}, 
+    { 0.01f,  0.07f, 2.10f, 1.51f}, 
+    { 0.04f,  0.00f, 0.98f, 0.96f}, 
+    {-0.27f, -0.02f, 1.25f, 1.51f}  
+};
 
 //for the lights
 struct SwingLight {
@@ -101,6 +131,8 @@ struct SwingLight {
     float r, g, b;      
     float buildX, buildY ,buildZ; 
 };
+GLuint lightVAO,lightVBO,lightEBO;
+int lightindices;
 
 int streetvertices;
 #define NUM_SWING_LIGHTS 5
@@ -127,7 +159,9 @@ static const float LIGHT_COLORS[5][3] = {
     {0.8f, 0.3f, 1.0f},  
 };
 
-GLuint gModelLocation, gViewLocation, gProjectionLocation,gTextureLocation,gUseTexture,gLightPosLocation,gViewPosLocation,gUseShine;
+bool collided = false;
+
+GLuint gModelLocation, gViewLocation, gProjectionLocation,gTextureLocation,gUseTexture,gLightPosLocation,gViewPosLocation,gUseShine,gisLight;
 
 int buildingVertexCount1 = 0;
 
@@ -155,8 +189,9 @@ void initSwingLights() {
         swingLights[i].r        = LIGHT_COLORS[i][0];
         swingLights[i].g        = LIGHT_COLORS[i][1];
         swingLights[i].b        = LIGHT_COLORS[i][2];
-        swingLights[i].buildX   = 40.0f - (i % 2) * 25.0f;
+        swingLights[i].buildX   = ((i+1)%2)*(50) + (i%2)*(-15);
         swingLights[i].buildZ   = i * 20.0f;
+        swingLights[i].buildY = buildheights[i];
     }
 }
 void drawLightMarker(float lx, float ly, float lz, float r, float g, float b) {
@@ -177,8 +212,8 @@ void drawLightMarker(float lx, float ly, float lz, float r, float g, float b) {
     m[15] = 1.0f;
 
     glUniformMatrix4fv(gModelLocation, 1, GL_FALSE, m);
-    glBindVertexArray(hitboxVAO);
-    glDrawArrays(GL_LINES, 0, 24);
+    glBindVertexArray(lightVAO);
+    glDrawElements(GL_TRIANGLES,lightindices,GL_UNSIGNED_INT,0);
 }
 void initNPCCars()
 {
@@ -211,16 +246,46 @@ bool checkCollision(float ax, float az, float bx, float bz) {
 }
 
 void checkCollisions() {
+
+    if (CAR_X - PLAYER_HALF_W < SCENE_X_MIN || 
+            CAR_X + PLAYER_HALF_W > SCENE_X_MAX ||
+            CAR_Z - PLAYER_HALF_L < SCENE_Z_MIN || 
+            CAR_Z + PLAYER_HALF_L > SCENE_Z_MAX) {
+
+        Velocity = 0.0f;
+        boost = false;
+        if(!collided) {
+            playCollsionsound();
+        }
+        collided = true;
+        return; 
+    }
+    for (int i = 0; i < NUM_OF_BUILDS; i++) {
+        float baseBuildX = 40.0f - (i % 2) * 25.0f;
+        float baseBuildZ = i * 20.0f;
+
+        float trueCenterX = baseBuildX + buildHitboxes[i].offsetX;
+        float trueCenterZ = baseBuildZ + buildHitboxes[i].offsetZ;
+
+        bool hitBuilding = (fabs(CAR_X - trueCenterX) < (PLAYER_HALF_W + buildHitboxes[i].halfW)) &&
+            (fabs(CAR_Z - trueCenterZ) < (PLAYER_HALF_L + buildHitboxes[i].halfL));
+
+        if (hitBuilding) {
+            Velocity = 0.0f;
+            boost = false;
+            if(!collided) playCollsionsound();
+            collided = true;
+            return;
+        }
+    }
     for (int i = 0; i < NUM_NPC; i++) {
         if (checkCollision(CAR_X, CAR_Z, npcCars[i].x, npcCars[i].z)) {
-            CAR_X = 50.0f;
-            CAR_Y = 0.0f;
-            CAR_Z = 0.0f;
             Velocity = 0.0f;
-            Angle = 0.0f;
-            initNPCCars();
             boost = false;
-            playCollsionsound();
+
+            if(!collided)
+                playCollsionsound();
+            collided = true;
             return; 
         }
     }
@@ -415,6 +480,7 @@ static void CompileShaders() {
     gViewPosLocation  = glGetUniformLocation(ShaderProgram, "viewPos");
     gUseShine         = glGetUniformLocation(ShaderProgram,"useShine");
     gNumLightsLoc = glGetUniformLocation(ShaderProgram, "numLights");
+    gisLight = glGetUniformLocation(ShaderProgram,"isLight");
     char buf[64];
     for (int i = 0; i < 10; i++) {
         sprintf(buf, "lightPos[%d]",   i); gLightPosLoc[i]   = glGetUniformLocation(ShaderProgram, buf);
@@ -467,26 +533,34 @@ void createViewMatrix(float *m, float eyeX, float eyeY, float eyeZ,
 }
 
 void createModelMatrix(float *m, float tx, float ty, float tz,
-        float angleDegrees, float sx, float sy, float sz) {
+        float angleDegrees, float angleDegrees2, float sx, float sy, float sz) {
     memset(m, 0, 16 * sizeof(float));
-    float rad = angleDegrees * M_PI / 180.0f;
+
+    float rad = angleDegrees * M_PI / 180.0f;    // y-axis rotation
     float c = cos(rad), s = sin(rad);
 
-    m[0] = c * sx;
-    m[1] = 0;
+    float rad2 = angleDegrees2 * M_PI / 180.0f;  // z-axis rotation
+    float c2 = cos(rad2), s2 = sin(rad2);
+
+    // Column 0: X basis vector
+    m[0] = c2 * c * sx;
+    m[1] = s2 * c * sx;
     m[2] = -s * sx;
     m[3] = 0;
 
-    m[4] = 0;
-    m[5] = 1 * sy;
+    // Column 1: Y basis vector
+    m[4] = -s2 * sy;
+    m[5] = c2 * sy;
     m[6] = 0;
     m[7] = 0;
 
-    m[8]  = s * sz;
-    m[9]  = 0;
+    // Column 2: Z basis vector
+    m[8]  = c2 * s * sz;
+    m[9]  = s2 * s * sz;
     m[10] = c * sz;
     m[11] = 0;
 
+    // Column 3: Translation
     m[12] = tx;
     m[13] = ty;
     m[14] = tz;
@@ -545,9 +619,9 @@ void drawHitbox(float cx, float cy, float cz, float hw, float hl, float height,
 
     float m[16];
     if(flag)    
-        createModelMatrix(m,cx,cy,cz,Angle,hw,height,hl); 
+        createModelMatrix(m,cx,cy,cz,Angle,0.0f,hw,height,hl); 
     else    
-        createModelMatrix(m,cx,cy,cz,0.0f,hw,height,hl); 
+        createModelMatrix(m,cx,cy,cz,0.0f,0.0f,hw,height,hl); 
     glUniformMatrix4fv(gModelLocation, 1, GL_FALSE, m);
     glBindVertexArray(hitboxVAO);
     glDrawArrays(GL_LINES, 0, 24);
@@ -561,15 +635,18 @@ void display(){
         // the swing should happen between -30 to 30
         swingLights[i].angle = 30.0f * sinf(currentTime * (0.5f + i * 0.1f));
     }
-    
+
     float dt = currentTime - prevtime;
+    windmillAngle += windmillSpeed * dt;
+    if (windmillAngle > 360.0f) 
+        windmillAngle -= 360.0f;
     prevtime = currentTime;
     if(currentTime - boost_time >= 1.0f)
         boost = false;
 
     float rad = (-90.0f+Angle) * M_PI / 180.0f;
-    if(dt < 0.05)
-        dt = 0.05f;
+    if(dt < 0.03)
+        dt = 0.03f;
     if(!boost){
         CAR_X += Velocity *cos(rad)*dt;
         CAR_Z -= Velocity * sin(rad)*dt;
@@ -584,8 +661,8 @@ void display(){
     glClear(GL_COLOR_BUFFER_BIT| GL_DEPTH_BUFFER_BIT);
 
     glUseProgram(ShaderProgram);
-    
-    
+
+
     glUniform1i(gNumLightsLoc, NUM_SWING_LIGHTS);
     GLint colorLoc = glGetUniformLocation(ShaderProgram, "objectColor");
     float matrix[16];
@@ -639,8 +716,8 @@ void display(){
         case 4: { 
                     //placed at the light and moves with the light
                     float sRad = swingLights[0].angle * M_PI / 180.0f;
-                    float lx = 50.0f;          
-                    float ly = 6.0f - cosf(sRad) * 1.0f;
+                    float lx = swingLights[0].buildX;          
+                    float ly = swingLights[0].buildY - cosf(sRad) * 2.0f;
                     float lz = swingLights[0].buildZ + sinf(sRad) * 8.0f;
                     eyeX = lx;  eyeY = ly;  eyeZ = lz;
                     targetX = lx;  targetY = 0.0f;  targetZ = swingLights[0].buildZ;
@@ -673,15 +750,15 @@ void display(){
     glUniformMatrix4fv(gModelLocation, 1, GL_FALSE, identity);
     for (int i = 0; i < NUM_SWING_LIGHTS; i++) {
         float rad = swingLights[i].angle * M_PI / 180.0f;
-        float lx = 50.0f;
-        if(i%2)
-            lx = 4.0f;
-        float ly = 6.0f - cos(rad)*1 ;
+        float lx = swingLights[i].buildX;
+        float ly = swingLights[i].buildY +2.0 - cos(rad)*2 ;
         float lz = swingLights[i].buildZ + sin(rad) * 8;
 
         glUniform3f(gLightPosLoc[i],   lx, ly, lz);
         glUniform3f(gLightColorLoc[i], swingLights[i].r, swingLights[i].g,swingLights[i].b);
+        glUniform1i(gisLight,1);
         drawLightMarker(lx, ly, lz, swingLights[i].r, swingLights[i].g, swingLights[i].b);
+        glUniform1i(gisLight,0);
     }
     if (showHitboxes) {
         drawHitbox(CAR_X, 0.0f, CAR_Z,
@@ -693,6 +770,17 @@ void display(){
                     NPC_HALF_W, NPC_HALF_L, 0.6f,
                     1.0f, 0.0f, 0.0f,0);
         }
+        for (int i = 0; i < NUM_OF_BUILDS; i++) {
+            float baseBuildX = 40.0f - (i % 2) * 25.0f;
+            float baseBuildZ = i * 20.0f;
+            
+            float trueCenterX = baseBuildX + buildHitboxes[i].offsetX;
+            float trueCenterZ = baseBuildZ + buildHitboxes[i].offsetZ;
+
+            drawHitbox(trueCenterX, 0.0f, trueCenterZ,
+                    buildHitboxes[i].halfW, buildHitboxes[i].halfL, 2.0f,
+                    0.0f, 0.5f, 1.0f, 0); 
+        }
     }
 
     glUniform1i(gUseTexture, 1);
@@ -700,7 +788,7 @@ void display(){
 
     //for the car 
     glUniform1i(gUseShine,1);
-    createModelMatrix(matrix,CAR_X,0.10f,CAR_Z,Angle,0.5f,0.5f,0.5f);
+    createModelMatrix(matrix,CAR_X,0.40f,CAR_Z,Angle,0.0f,0.5f,0.5f,0.5f);
     glUniformMatrix4fv(gModelLocation, 1, GL_FALSE, matrix);
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, carModel.texture);
@@ -713,22 +801,39 @@ void display(){
     //for all the buildings
     for(int i=0;i<NUM_OF_BUILDS;i++){
         glUniform1i(gUseTexture,1); 
-        createModelMatrix(matrix,40.0f - (i%2)*25.0f,0.0,0.0f+i*20.0f,0.0,1.0f,1.00f,1.0f);
+        createModelMatrix(matrix,40.0f - (i%2)*25.0f,0.0,0.0f+i*20.0f,0.0,0.0f,0.50f,.50f,.50f);
         glUniformMatrix4fv(gModelLocation, 1, GL_FALSE, matrix);
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, buildings[i].textureID);
         glBindVertexArray(buildings[i].VAO);
         glDrawArrays(GL_TRIANGLES, 0, buildings[i].vertices_count);
 
+        float bx = 40.0f - (i%2)*25.0f;
+        float bz = i * 20.0f;
+        float by = buildheights[i];
+
+        glUniform1i(gUseTexture, 0);
+        glUniform1i(gUseShine, 0);
+        glUniform1i(gisLight,0);
+        glUniform3f(colorLoc, 0.6f, 0.6f, 0.6f);  
+
+        createModelMatrix(matrix, bx, by, bz,0.0f, windmillAngle,1.0f, 1.0f, 0.1f);
+        glUniformMatrix4fv(gModelLocation, 1, GL_FALSE, matrix);
+        glBindVertexArray(windmillVAO);
+        glDrawArrays(GL_TRIANGLES, 0, windmillVertCount);
+
 
         glUniform1i(gUseTexture, 0);
         glUniform3f(colorLoc, 0.1960f,0.1960f,0.1960f);
-        createModelMatrix(matrix,40.0f - (i%2)*40.0f + ((i+1)%2)*17,0.0,0.0f+i*20.0f,((i+1)%2)*180,1.0f,1.00f,1.0f);
+        createModelMatrix(matrix,40.0f - (i%2)*40.0f + ((i+1)%2)*17,0.0,0.0f+i*20.0f,((i+1)%2)*180,0.0f,1.0f,1.00f,1.0f);
         glUniformMatrix4fv(gModelLocation, 1, GL_FALSE, matrix);
         glBindVertexArray(streetlightVAO);
         glDrawArrays(GL_TRIANGLES,0,streetvertices);
-        glUniform3f(gLightPosLoc[i+5], 40.0f - (i%2)*42.0f + ((i+1)%2)*15  , 10.0f, i*20.0f);
+        glUniform3f(gLightPosLoc[i+5], 40.0f - (i%2)*37.25f + ((i+1)%2)*14.25  , 5.5f, i*20.0f);
         glUniform3f(gLightColorLoc[i+5],1.0f ,0.8784f ,0.5530f);
+        glUniform1i(gisLight,1);
+        drawLightMarker(40.0f - (i%2)*37.25f + ((i+1)%2)*14.25  , 5.5f, i*20.0f, 1.0f, 0.8784, 0.5530);
+        glUniform1i(gisLight,0);
     }
 
 
@@ -737,16 +842,16 @@ void display(){
     glUniform1i(gUseShine,1);
     for (int i = 0; i < NUM_NPC; i++) {
 
-        createModelMatrix(matrix,npcCars[i].x,0.0f,npcCars[i].z,npcCars[i].angle,.50f, .50f, .50f);   // scale = 1
+        createModelMatrix(matrix,npcCars[i].x,0.0f,npcCars[i].z,npcCars[i].angle,0.0f,.50f, .50f, .50f);   // scale = 1
         glUniformMatrix4fv(gModelLocation, 1, GL_FALSE, matrix);
-        glUniform3f(colorLoc,npcCars[i].r,npcCars[i].b,npcCars[i].g);
+        glUniform3f(colorLoc,npcCars[i].r,npcCars[i].g,npcCars[i].b);
         glBindVertexArray(npcModel.carVAO);
         glDrawArrays(GL_TRIANGLES, 0,npcModel.vertices_count );
 
 
     }
     //for the track
-    createModelMatrix(matrix,0.0f,0.0f,0.0f,0.0f,3.0f,3.0f,3.0f);
+    createModelMatrix(matrix,0.0f,0.0f,0.0f,0.0f,0.0f,3.0f,3.0f,3.0f);
     glUniformMatrix4fv(gModelLocation, 1, GL_FALSE, matrix);
     glBindVertexArray(trackVerticalVAO);
     glUniform3f(colorLoc, 0.1960f,0.1960f,0.1960f);
@@ -757,6 +862,19 @@ void display(){
     glDrawArrays(GL_TRIANGLES, 0, ARC_SEGS * 6);
 
     glUniform1i(gUseShine,0);
+
+
+    //for the wall
+    glUniform1i(gUseTexture, 0);
+    glUniform1i(gUseShine, 0);
+    glUniform3f(colorLoc, 0.667, 0.290, 0.267);
+
+    setIdentity(matrix);
+    glUniformMatrix4fv(gModelLocation, 1, GL_FALSE, matrix);
+
+    glBindVertexArray(wallVAO);
+    glDrawArrays(GL_TRIANGLES, 0, wallVertCount);
+    // -----------------------------
 
 
 
@@ -778,43 +896,59 @@ void mouse(int button , int state , int x , int y){
 }
 
 void keyboard(unsigned char key,int x,int y){
+    if(!collided){
+        if(key == 'f' || key == 'F'){
+            Velocity += Velocity_step;
+            if(Velocity > MAX_VELOCITY)
+                Velocity = MAX_VELOCITY;
+        }    
+        if(key == 's' || key == 'S'){
+            Velocity -= Velocity_step;
+        }
+        if(key == 'R' || key == 'r'){
+            Angle -= Angle_STEP;
+        }
+        if(key == 'l' || key == 'L'){
+            Angle+= Angle_STEP;
+        }
+        if(key == 'b' || key == 'B')
+            showHitboxes = !showHitboxes;
 
-    if(key == 'w' || key == 'W'){
-        Velocity += Velocity_step;
-        if(Velocity > MAX_VELOCITY)
-            Velocity = MAX_VELOCITY;
-    }    
-    if(key == 's' || key == 'S'){
-        Velocity -= Velocity_step;
-    }
-    if(key == 'd' || key == 'D'){
-        Angle -= Angle_STEP;
-    }
-    if(key == 'a' || key == 'A'){
-        Angle+= Angle_STEP;
-    }
-    if(key == 'b' || key == 'B')
-        showHitboxes = !showHitboxes;
+        if(key == 'h' || key == 'H')
+            playHornsound();
 
-    if(key == 'h' || key == 'H')
-        playHornsound();
-
-    if(key == ' ' && !boost){
-        boost = true;
-        boost_time = glutGet(GLUT_ELAPSED_TIME)/1000.0f;
+        if(key == ' ' && !boost){
+            boost = true;
+            boost_time = glutGet(GLUT_ELAPSED_TIME)/1000.0f;
+        }
+        if( key =='u'){
+            CAR_Y += 0.3f;
+        }
+        if(key == 'U'){
+            CAR_Y -= 0.3f;
+        }
+        if(key >= '1' && key <= '5')
+            cameraMode = key - '0';
+        if(cameraMode == 3){
+            if(key == ',') groundViewYaw = fmaxf(groundViewYaw - 3.0f, -30.0f);
+            if(key == '.') groundViewYaw = fminf(groundViewYaw + 3.0f,  30.0f);
+        }
+        if (key == 'W') {                          
+            windmillSpeed += 10.0f;
+        }
+        if (key == 'w') {                          
+            windmillSpeed -= 10.0f;
+            if (windmillSpeed < 0.0f) windmillSpeed = 0.0f;
+        }
     }
-    if( key =='u'){
-
-        CAR_Y += 0.3f;
-    }
-    if(key == 'U'){
-        CAR_Y -= 0.3f;
-    }
-    if(key >= '1' && key <= '5')
-        cameraMode = key - '0';
-    if(cameraMode == 3){
-        if(key == ',') groundViewYaw = fmaxf(groundViewYaw - 3.0f, -30.0f);
-        if(key == '.') groundViewYaw = fminf(groundViewYaw + 3.0f,  30.0f);
+    if(collided && (key == 'r' || key == 'R')){
+        CAR_X = 50.0f;
+        CAR_Y = 0.0f;
+        CAR_Z = 0.0f;
+        initNPCCars();
+        collided = false;
+        Angle = 0.0f;
+        cameraMode = 5;
     }
 }
 
@@ -833,9 +967,149 @@ void InitGlut(int argc,char ** argv){
     glutMouseFunc(mouse);  // when we get an interrupt from the mouse this callback is called
 
 }
+void initWindmill() {
+    const int SPOKES = 5;
+    const float RIM_R = 1.0f;       // outer radius
+    const float SPOKE_W = 0.06f;    // half-width of each spoke
 
+    vector<float> verts;
+
+    auto pushTri = [&](float x0,float y0, float x1,float y1, float x2,float y2) {
+        verts.insert(verts.end(), {x0,y0,0,  0,0,1,
+                x1,y1,0,  0,0,1,
+                x2,y2,0,  0,0,1});
+    };
+
+    for (int s = 0; s < SPOKES; s++) {
+        float a = s * (2.0f * M_PI / SPOKES);
+        float cx = cosf(a), cy = sinf(a);
+        float px = -sinf(a) * SPOKE_W, py = cosf(a) * SPOKE_W;
+        pushTri( px,  py,  cx*RIM_R + px, cy*RIM_R + py,  cx*RIM_R - px, cy*RIM_R - py);
+        pushTri( px,  py,  cx*RIM_R - px, cy*RIM_R - py, -px, -py);
+    }
+
+
+    windmillVertCount = verts.size() / 6;
+
+    glGenVertexArrays(1, &windmillVAO);
+    glGenBuffers(1, &windmillVBO);
+    glBindVertexArray(windmillVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, windmillVBO);
+    glBufferData(GL_ARRAY_BUFFER, verts.size()*sizeof(float), verts.data(), GL_STATIC_DRAW);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)(3*sizeof(float)));
+    glEnableVertexAttribArray(1);
+    glBindVertexArray(0);
+}
+void initWalls() {
+    vector<float> verts;
+    float h = 6.0f;    
+    float t = 1.0f;    
+
+    auto addBox = [&](float x1, float x2, float y1, float y2, float z1, float z2) {
+        float box[] = {
+            x1,y1,z2, x2,y1,z2, x2,y2,z2,  x1,y1,z2, x2,y2,z2, x1,y2,z2, // front
+            x2,y1,z1, x1,y1,z1, x1,y2,z1,  x2,y1,z1, x1,y2,z1, x2,y2,z1, // back
+            x1,y1,z1, x1,y1,z2, x1,y2,z2,  x1,y1,z1, x1,y2,z2, x1,y2,z1, // left
+            x2,y1,z2, x2,y1,z1, x2,y2,z1,  x2,y1,z2, x2,y2,z1, x2,y2,z2, // right
+            x1,y2,z2, x2,y2,z2, x2,y2,z1,  x1,y2,z2, x2,y2,z1, x1,y2,z1, // top
+            x1,y1,z1, x2,y1,z1, x2,y1,z2,  x1,y1,z1, x2,y1,z2, x1,y1,z2  // bottom
+        };
+        verts.insert(verts.end(), begin(box), end(box));
+    };
+
+    addBox(SCENE_X_MIN - t, SCENE_X_MIN, 0.0f, h, SCENE_Z_MIN - t, SCENE_Z_MAX + t); // left 
+    addBox(SCENE_X_MAX, SCENE_X_MAX + t, 0.0f, h, SCENE_Z_MIN - t, SCENE_Z_MAX + t); // right 
+    addBox(SCENE_X_MIN, SCENE_X_MAX, 0.0f, h, SCENE_Z_MIN - t, SCENE_Z_MIN);         // back 
+    addBox(SCENE_X_MIN, SCENE_X_MAX, 0.0f, h, SCENE_Z_MAX, SCENE_Z_MAX + t);         // front 
+
+    wallVertCount = verts.size() / 3;
+
+    glGenVertexArrays(1, &wallVAO);
+    glGenBuffers(1, &wallVBO);
+    glBindVertexArray(wallVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, wallVBO);
+    glBufferData(GL_ARRAY_BUFFER, verts.size() * sizeof(float), verts.data(), GL_STATIC_DRAW);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+    glBindVertexArray(0);
+}
 void initAllBuffers()
 {
+    initWindmill();
+    initWalls();
+    auto buildSphere = [](float radius, int stackCount, int sectorCount,
+            GLuint &VAO, GLuint &VBO, GLuint &EBO,
+            int &indexCount) {
+        std::vector<float> vertices;
+        float x, y, z, xy;
+        float sectorStep = 2 * M_PI / sectorCount;
+        float stackStep = M_PI / stackCount;
+        float sectorAngle, stackAngle;
+
+        for (int i = 0; i <= stackCount; ++i) {
+            stackAngle = M_PI / 2 - i * stackStep; // pi/2 to -pi/2
+            xy = radius * cosf(stackAngle);
+            z = radius * sinf(stackAngle);
+
+            for (int j = 0; j <= sectorCount; ++j) {
+                sectorAngle = j * sectorStep;
+                x = xy * cosf(sectorAngle);
+                y = xy * sinf(sectorAngle);
+                vertices.push_back(x);
+                vertices.push_back(y);
+                vertices.push_back(z);
+            }
+        }
+
+        // Generate indices (CCW)
+        std::vector<int> indices;
+        int k1, k2;
+        for (int i = 0; i < stackCount; ++i) {
+            k1 = i * (sectorCount + 1);
+            k2 = k1 + sectorCount + 1;
+
+            for (int j = 0; j < sectorCount; ++j, ++k1, ++k2) {
+                // k1 => k2 => k1+1
+                if (i != 0) {
+                    indices.push_back(k1);
+                    indices.push_back(k2);
+                    indices.push_back(k1 + 1);
+                }
+                // k1+1 => k2 => k2+1
+                if (i != (stackCount - 1)) {
+                    indices.push_back(k1 + 1);
+                    indices.push_back(k2);
+                    indices.push_back(k2 + 1);
+                }
+            }
+        }
+
+        indexCount = (int)indices.size();
+
+        glGenVertexArrays(1, &VAO);
+        glGenBuffers(1, &VBO);
+        glGenBuffers(1, &EBO);
+
+        glBindVertexArray(VAO);
+
+        glBindBuffer(GL_ARRAY_BUFFER, VBO);
+        glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float),
+                vertices.data(), GL_STATIC_DRAW);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float),
+                (void *)0);
+        glEnableVertexAttribArray(0);
+
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(int),
+                indices.data(), GL_STATIC_DRAW);
+
+        glBindVertexArray(0);
+    };
+
+    buildSphere(1.05f, 18, 36, lightVAO, lightVBO, lightEBO, lightindices);
+
 
     float boxLines[] = {
         -1,0,-1,  1,0,-1,

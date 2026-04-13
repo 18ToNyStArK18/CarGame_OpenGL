@@ -6,34 +6,38 @@ in vec2 TexCoord;
 uniform vec3      objectColor;
 uniform sampler2D gTexture;
 uniform bool      useTexture;
-uniform vec3      lightPos;    
-uniform vec3      viewPos;     
 uniform bool      useShine;
+uniform vec3      viewPos;
+
+// multiple lights
+#define MAX_LIGHTS 10
+uniform int       numLights;
+uniform vec3      lightPos[MAX_LIGHTS];
+uniform vec3      lightColor[MAX_LIGHTS];
 
 out vec4 FragColor;
 
 void main() {
-    vec3 baseColor = useTexture ? texture(gTexture, TexCoord).rgb
-        : objectColor;
+    vec3 baseColor = useTexture ? texture(gTexture, TexCoord).rgb : objectColor;
+    vec3 norm      = normalize(Normal);
+    vec3 viewDir   = normalize(viewPos - FragPos);
 
-    float ambientStrength = 0.3;
-    vec3 ambient = ambientStrength * baseColor;
+    vec3 ambient = 0.15 * baseColor;
+    vec3 result  = ambient;
 
-    vec3 norm     = normalize(Normal);
-    vec3 lightDir = normalize(lightPos - FragPos);
-    float diff    = max(dot(norm, lightDir), 0.0);
-    vec3 diffuse  = diff * baseColor;
+    for (int i = 0; i < numLights; i++) {
+        vec3 lightDir   = normalize(lightPos[i] - FragPos);
 
+        float diff      = max(dot(norm, lightDir), 0.0);
+        vec3  diffuse   = diff * baseColor * lightColor[i];
 
-    float specularStrength = 0.5;
-    vec3 viewDir = normalize(viewPos - FragPos);
-    vec3 reflectDir = reflect(-lightDir, norm);
-    float spec = pow(max(dot(viewDir, reflectDir), 0.0), 256);
-    vec3 specular = specularStrength * spec *  vec3(1.0);
+        // specular
+        vec3  reflDir   = reflect(-lightDir, norm);
+        float spec      = useShine ? pow(max(dot(viewDir, reflDir), 0.0), 256.0) : 0.0;
+        vec3  specular  = 0.6 * spec * lightColor[i];
 
-    if(useShine)
-        FragColor = vec4(ambient + diffuse + specular, 1.0);
-    else
-        FragColor = vec4(ambient + diffuse, 1.0);
+        result += diffuse + specular;
+    }
 
+    FragColor = vec4(result, 1.0);
 }

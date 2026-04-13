@@ -88,6 +88,40 @@ const int NUM_OF_BUILDS =  5;
 
 build buildings[NUM_OF_BUILDS];
 
+
+//for the lights
+struct SwingLight {
+    float angle;        
+    float speed;        
+    float r, g, b;      
+    float buildX, buildY ,buildZ; 
+};
+
+int streetvertices;
+#define NUM_SWING_LIGHTS 5
+
+SwingLight swingLights[NUM_SWING_LIGHTS];
+
+GLuint gNumLightsLoc;
+GLuint gLightPosLoc[10];
+GLuint gLightColorLoc[10];
+// streetlights
+#define NUM_STREET_LIGHTS 5
+GLuint streetlightVAO , streetlightVBO , streelightuvVBO;
+struct street{
+    float x,y,z;
+    float angle;
+};
+street StreetLights[NUM_STREET_LIGHTS];
+
+static const float LIGHT_COLORS[5][3] = {
+    {1.0f, 0.3f, 0.3f},  
+    {0.3f, 1.0f, 0.3f}, 
+    {0.3f, 0.3f, 1.0f},  
+    {1.0f, 1.0f, 0.3f},  
+    {0.8f, 0.3f, 1.0f},  
+};
+
 GLuint gModelLocation, gViewLocation, gProjectionLocation,gTextureLocation,gUseTexture,gLightPosLocation,gViewPosLocation,gUseShine;
 
 int buildingVertexCount1 = 0;
@@ -95,18 +129,51 @@ int buildingVertexCount1 = 0;
 struct Vertex3D { float x, y, z; };
 
 void playCollsionsound() {
-  static sf::Music music;
-  if (music.getStatus() != sf::Music::Playing) {
-    music.openFromFile("collsion.mp3");
-    music.play();
-  }
+    static sf::Music music;
+    if (music.getStatus() != sf::Music::Playing) {
+        music.openFromFile("collsion.mp3");
+        music.play();
+    }
 }
 void playHornsound() {
-  static sf::Music music;
-  if (music.getStatus() != sf::Music::Playing) {
-    music.openFromFile("horn.mp3");
-    music.play();
-  }
+    static sf::Music music;
+    if (music.getStatus() != sf::Music::Playing) {
+        music.openFromFile("horn.mp3");
+        music.play();
+    }
+}
+
+void initSwingLights() {
+    for (int i = 0; i < NUM_SWING_LIGHTS; i++) {
+        swingLights[i].angle    = 0.0f;
+        swingLights[i].speed    = 30.0f;  
+        swingLights[i].r        = LIGHT_COLORS[i][0];
+        swingLights[i].g        = LIGHT_COLORS[i][1];
+        swingLights[i].b        = LIGHT_COLORS[i][2];
+        swingLights[i].buildX   = 40.0f - (i % 2) * 25.0f;
+        swingLights[i].buildZ   = i * 20.0f;
+    }
+}
+void drawLightMarker(float lx, float ly, float lz, float r, float g, float b) {
+    GLint colorLoc = glGetUniformLocation(ShaderProgram, "objectColor");
+    glUniform1i(gUseTexture, 0);
+    glUniform1i(gUseShine,   0);
+    glUniform3f(colorLoc, r, g, b);
+
+    float m[16];
+    float size = 0.3f;   
+    memset(m, 0, sizeof(m));
+    m[0]  = size;
+    m[5]  = size;
+    m[10] = size;
+    m[12] = lx;
+    m[13] = ly;
+    m[14] = lz;
+    m[15] = 1.0f;
+
+    glUniformMatrix4fv(gModelLocation, 1, GL_FALSE, m);
+    glBindVertexArray(hitboxVAO);
+    glDrawArrays(GL_LINES, 0, 24);
 }
 void initNPCCars()
 {
@@ -135,7 +202,7 @@ void initNPCCars()
 }
 bool checkCollision(float ax, float az, float bx, float bz) {
     return (fabs(ax - bx) < (PLAYER_HALF_W + NPC_HALF_W)) &&
-           (fabs(az - bz) < (PLAYER_HALF_L + NPC_HALF_L));
+        (fabs(az - bz) < (PLAYER_HALF_L + NPC_HALF_L));
 }
 
 void checkCollisions() {
@@ -189,7 +256,7 @@ vector<float> loadObjToFlatArray(string filepath) {
         else if (prefix == "f") {
             std::string v1, v2, v3, v4;
             ss >> v1 >> v2 >> v3;
-            
+
             if (!(ss >> v4)) { v4 = ""; }
 
             auto getIndices = [](const std::string& token) -> pair<int,int> {
@@ -224,7 +291,7 @@ vector<float> loadObjToFlatArray(string filepath) {
             if (!v4.empty()) {
                 pushVert(v1); pushVert(v3); pushVert(v4);
             }
-            
+
         }
     }
     return out_vertices;
@@ -340,9 +407,14 @@ static void CompileShaders() {
     gProjectionLocation = glGetUniformLocation(ShaderProgram, "gProjection");
     gTextureLocation = glGetUniformLocation(ShaderProgram,"gTexture");
     gUseTexture         = glGetUniformLocation(ShaderProgram, "useTexture");
-    gLightPosLocation = glGetUniformLocation(ShaderProgram, "lightPos");
     gViewPosLocation  = glGetUniformLocation(ShaderProgram, "viewPos");
     gUseShine         = glGetUniformLocation(ShaderProgram,"useShine");
+    gNumLightsLoc = glGetUniformLocation(ShaderProgram, "numLights");
+    char buf[64];
+    for (int i = 0; i < 10; i++) {
+        sprintf(buf, "lightPos[%d]",   i); gLightPosLoc[i]   = glGetUniformLocation(ShaderProgram, buf);
+        sprintf(buf, "lightColor[%d]", i); gLightColorLoc[i] = glGetUniformLocation(ShaderProgram, buf);
+    }
 }
 void createViewMatrix(float *m, float eyeX, float eyeY, float eyeZ,
         float centerX, float centerY, float centerZ, float upX,
@@ -480,6 +552,11 @@ void display(){
 
 
     float currentTime = glutGet(GLUT_ELAPSED_TIME)/1000.0f;
+    for (int i = 0; i < NUM_SWING_LIGHTS; i++) {
+        // the swing should happen between -30 to 30
+        swingLights[i].angle = 30.0f * sinf(currentTime * (0.5f + i * 0.1f));
+    }
+    
     float dt = currentTime - prevtime;
     prevtime = currentTime;
     if(currentTime - boost_time >= 1.0f)
@@ -502,7 +579,9 @@ void display(){
     glClear(GL_COLOR_BUFFER_BIT| GL_DEPTH_BUFFER_BIT);
 
     glUseProgram(ShaderProgram);
-
+    
+    
+    glUniform1i(gNumLightsLoc, NUM_SWING_LIGHTS);
     GLint colorLoc = glGetUniformLocation(ShaderProgram, "objectColor");
     float matrix[16];
     float proj[16];
@@ -528,12 +607,22 @@ void display(){
 
     createViewMatrix(view, eyeX, eyeY, eyeZ, targetX, targetY, targetZ, 0.0f, 1.0f, 0.0f);
     glUniformMatrix4fv(gViewLocation, 1, GL_FALSE, view);
-    glUniform3f(gLightPosLocation, CAR_X, CAR_Y + 0.5f, CAR_Z);  // light = car pos
     glUniform3f(gViewPosLocation,  eyeX,  eyeY, eyeZ);   // camera pos
     float identity[16];
     setIdentity(identity);
     glUniformMatrix4fv(gModelLocation, 1, GL_FALSE, identity);
+    for (int i = 0; i < NUM_SWING_LIGHTS; i++) {
+        float rad = swingLights[i].angle * M_PI / 180.0f;
+        float lx = 50.0f;
+        if(i%2)
+            lx = 4.0f;
+        float ly = 6.0f - cos(rad)*1 ;
+        float lz = swingLights[i].buildZ + sin(rad) * 8;
 
+        glUniform3f(gLightPosLoc[i],   lx, ly, lz);
+        glUniform3f(gLightColorLoc[i], swingLights[i].r, swingLights[i].g,swingLights[i].b);
+        drawLightMarker(lx, ly, lz, swingLights[i].r, swingLights[i].g, swingLights[i].b);
+    }
     if (showHitboxes) {
         drawHitbox(CAR_X, 0.0f, CAR_Z,
                 PLAYER_HALF_W, PLAYER_HALF_L, 0.6f,
@@ -550,17 +639,20 @@ void display(){
     glUniform1i(gTextureLocation, 0);
 
     //for the car 
+    glUniform1i(gUseShine,1);
     createModelMatrix(matrix,CAR_X,0.10f,CAR_Z,Angle,0.5f,0.5f,0.5f);
     glUniformMatrix4fv(gModelLocation, 1, GL_FALSE, matrix);
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, carModel.texture);
     glBindVertexArray(carModel.carVAO);
     glDrawArrays(GL_TRIANGLES, 0,carModel.vertices_count );
+    glUniform1i(gUseShine,0);
 
 
 
     //for all the buildings
     for(int i=0;i<NUM_OF_BUILDS;i++){
+        glUniform1i(gUseTexture,1); 
         createModelMatrix(matrix,40.0f - (i%2)*25.0f,0.0,0.0f+i*20.0f,0.0,1.0f,1.00f,1.0f);
         glUniformMatrix4fv(gModelLocation, 1, GL_FALSE, matrix);
         glActiveTexture(GL_TEXTURE0);
@@ -568,10 +660,18 @@ void display(){
         glBindVertexArray(buildings[i].VAO);
         glDrawArrays(GL_TRIANGLES, 0, buildings[i].vertices_count);
 
+
+        glUniform1i(gUseTexture, 0);
+        glUniform3f(colorLoc, 0.1960f,0.1960f,0.1960f);
+        createModelMatrix(matrix,40.0f - (i%2)*40.0f + ((i+1)%2)*17,0.0,0.0f+i*20.0f,((i+1)%2)*180,1.0f,1.00f,1.0f);
+        glUniformMatrix4fv(gModelLocation, 1, GL_FALSE, matrix);
+        glBindVertexArray(streetlightVAO);
+        glDrawArrays(GL_TRIANGLES,0,streetvertices);
+        glUniform3f(gLightPosLoc[i+5], 40.0f - (i%2)*42.0f + ((i+1)%2)*15  , 10.0f, i*20.0f);
+        glUniform3f(gLightColorLoc[i+5],1.0f ,0.8784f ,0.5530f);
     }
 
 
-    glUniform1i(gUseTexture, 0);
 
     //npc cars
     glUniform1i(gUseShine,1);
@@ -588,8 +688,8 @@ void display(){
     //for the track
     createModelMatrix(matrix,0.0f,0.0f,0.0f,0.0f,3.0f,3.0f,3.0f);
     glUniformMatrix4fv(gModelLocation, 1, GL_FALSE, matrix);
-    glUniform3f(colorLoc, 0.1960f,0.1960f,0.1960f);
     glBindVertexArray(trackVerticalVAO);
+    glUniform3f(colorLoc, 0.1960f,0.1960f,0.1960f);
     glDrawArrays(GL_TRIANGLES, 0, 20);
     glBindVertexArray(trackTopArcVAO);
     glDrawArrays(GL_TRIANGLES, 0, ARC_SEGS * 6);
@@ -643,6 +743,10 @@ void keyboard(unsigned char key,int x,int y){
         boost = true;
         boost_time = glutGet(GLUT_ELAPSED_TIME)/1000.0f;
     }
+    if(key == 'U' || key =='u'){
+
+        CAR_Y += 0.3f;
+    }
 }
 
 void InitGlut(int argc,char ** argv){
@@ -687,8 +791,8 @@ void initAllBuffers()
     glEnableVertexAttribArray(0);
     glBindVertexArray(0);
 
-    vector <float> carvertices = loadObjToFlatArray("buildings/car.obj");
-    vector <pair<float,float>> carUV = loadUVToFlatArray("buildings/car.obj");
+    vector <float> carvertices = loadObjToFlatArray("models/car.obj");
+    vector <pair<float,float>> carUV = loadUVToFlatArray("models/car.obj");
     glGenVertexArrays(1, &carModel.carVAO);
     glGenBuffers(1, &carModel.carVBO);
     glBindVertexArray(carModel.carVAO);
@@ -709,8 +813,8 @@ void initAllBuffers()
 
     carModel.vertices_count = carvertices.size()/6;
 
-    vector <float> npcvertices = loadObjToFlatArray("buildings/car2.obj");
-    vector <pair<float,float>> npcUV = loadUVToFlatArray("buildings/car2.obj");
+    vector <float> npcvertices = loadObjToFlatArray("models/car2.obj");
+    vector <pair<float,float>> npcUV = loadUVToFlatArray("models/car2.obj");
     glGenVertexArrays(1, &npcModel.carVAO);
     glGenBuffers(1, &npcModel.carVBO);
     glBindVertexArray(npcModel.carVAO);
@@ -730,6 +834,24 @@ void initAllBuffers()
 
     npcModel.vertices_count = npcvertices.size()/6;
 
+    vector <float> streetlight = loadObjToFlatArray("models/streetlight.obj");
+    vector <pair<float,float>> streetlightUV = loadUVToFlatArray("models/streetlight.obj");
+    glGenVertexArrays(1, &streetlightVAO);
+    glGenBuffers(1, &streetlightVBO);
+    glBindVertexArray(streetlightVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, streetlightVBO);
+    glBufferData(GL_ARRAY_BUFFER, streetlight.size() * sizeof(float), streetlight.data(), GL_STATIC_DRAW);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)(3*sizeof(float)));
+    glEnableVertexAttribArray(1);
+
+    glGenBuffers(1, &streelightuvVBO);
+    glBindBuffer(GL_ARRAY_BUFFER, streelightuvVBO);
+    glBufferData(GL_ARRAY_BUFFER, streetlightUV.size() * sizeof(pair<float,float>), streetlightUV.data(), GL_STATIC_DRAW);
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 2*sizeof(float), (void*)0);
+    glEnableVertexAttribArray(2);
+    streetvertices = streetlight.size()/6;
 
 
     float trackVertical[] ={
@@ -759,7 +881,7 @@ void initAllBuffers()
     };
     //for the buildings
     for(int i=0;i<NUM_OF_BUILDS;i++){
-        string path = "buildings/building";
+        string path = "models/building";
         path += to_string(i+1);
         path += ".obj";
         buildings[i].vertices = loadObjToFlatArray(path);
@@ -854,6 +976,7 @@ int main(int argc , char **argv){
     }
 
     initNPCCars();
+    initSwingLights();
     glEnable(GL_DEPTH_TEST);
     CompileShaders();
     initAllBuffers();

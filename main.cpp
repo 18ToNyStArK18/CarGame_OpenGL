@@ -72,6 +72,11 @@ bool showHitboxes = false;
 GLuint hitboxVAO, hitboxVBO;
 
 
+//for the cameras
+int cameraMode = 5;
+float groundViewYaw = 0.0f;
+
+
 //for the building
 
 struct build {
@@ -585,7 +590,7 @@ void display(){
     GLint colorLoc = glGetUniformLocation(ShaderProgram, "objectColor");
     float matrix[16];
     float proj[16];
-    float n = 1.0f, f = 100.0f;
+    float n = 1.0f, f = 200.0f;
     float r = 0.45f, l = -0.45f;
     float t = 0.45f, b = -0.45f;
     if(boost){
@@ -596,16 +601,71 @@ void display(){
     glUniformMatrix4fv(gProjectionLocation, 1, GL_FALSE, proj);
     // this to create the view matrix for the camera
     float view[16];
-    float followDistance = 12.0f; // how far behind the car the camera sits
-    float cameraHeight = 5.0f;    // how high above the car the camera sits
-    float eyeX = CAR_X - (followDistance * cos(rad));
-    float eyeY = CAR_Y + cameraHeight;
-    float eyeZ = CAR_Z + (followDistance * sin(rad));
-    float targetX = CAR_X;
-    float targetY = CAR_Y + 2.0f; 
-    float targetZ = CAR_Z;
+    float eyeX, eyeY, eyeZ;
+    float targetX, targetY, targetZ;
+    float upX = 0.0f, upY = 1.0f, upZ = 0.0f;
+    float fwdX = cos(rad);
+    float fwdZ = -sin(rad);
+    switch (cameraMode) {
 
-    createViewMatrix(view, eyeX, eyeY, eyeZ, targetX, targetY, targetZ, 0.0f, 1.0f, 0.0f);
+        case 1:{  
+                   //this is placed at the center at high pointing downwards
+                   eyeX = 27.0f;  eyeY =199.0f;  eyeZ = 45.0f;
+                   targetX = 27.0f; targetY = 0.0f; targetZ = 45.0f;
+                   upX = 0.0f; upY = 0.0f; upZ = -1.0f;
+                   break;
+               }
+        case 2:{ 
+                   eyeX   = CAR_X - fwdX * 0.5f;   // slightly behind the nose
+                   eyeY   = CAR_Y + 0.65f;          // near the room
+                   eyeZ   = CAR_Z - fwdZ * 0.5f;
+                   targetX = CAR_X + fwdX * 15.0f;
+                   targetY = CAR_Y - 0.3f;          // tilt slightly down so that we can wee the bottom
+                   targetZ = CAR_Z + fwdZ * 15.0f;
+                   upX = 0.0f; upY = 1.0f; upZ = 0.0f;
+                   break;
+               }
+        case 3: { 
+                    //placed beside a builing and can change the fov using the keys
+                    float gvRad = groundViewYaw * M_PI / 180.0f;
+                    eyeX = 42.0f;  eyeY = 3.0f;  eyeZ = 3.0f;
+                    targetX = eyeX + cosf(gvRad) * 20.0f;
+                    targetY = 1.0f;
+                    targetZ = eyeZ + sinf(gvRad) * 20.0f;
+                    upX = 0.0f; upY = 1.0f; upZ = 0.0f;
+                    break;
+                }
+
+        case 4: { 
+                    //placed at the light and moves with the light
+                    float sRad = swingLights[0].angle * M_PI / 180.0f;
+                    float lx = 50.0f;          
+                    float ly = 6.0f - cosf(sRad) * 1.0f;
+                    float lz = swingLights[0].buildZ + sinf(sRad) * 8.0f;
+                    eyeX = lx;  eyeY = ly;  eyeZ = lz;
+                    targetX = lx;  targetY = 0.0f;  targetZ = swingLights[0].buildZ;
+                    upX = 0.0f; upY = 0.0f; upZ = -1.0f; 
+                    break;
+                }
+
+        default:
+        case 5:
+                {
+                    //bird cam view the default one
+                    float followDistance = 12.0f;
+                    float cameraHeight   =  5.0f;
+                    eyeX = CAR_X - fwdX * followDistance;
+                    eyeY = CAR_Y + cameraHeight;
+                    eyeZ = CAR_Z - fwdZ * followDistance;
+                    targetX = CAR_X;
+                    targetY = CAR_Y + 2.0f;
+                    targetZ = CAR_Z;
+                    upX = 0.0f; upY = 1.0f; upZ = 0.0f;
+                }
+                break;
+    }
+
+    createViewMatrix(view, eyeX, eyeY, eyeZ, targetX, targetY, targetZ, upX, upY, upZ);
     glUniformMatrix4fv(gViewLocation, 1, GL_FALSE, view);
     glUniform3f(gViewPosLocation,  eyeX,  eyeY, eyeZ);   // camera pos
     float identity[16];
@@ -743,9 +803,18 @@ void keyboard(unsigned char key,int x,int y){
         boost = true;
         boost_time = glutGet(GLUT_ELAPSED_TIME)/1000.0f;
     }
-    if(key == 'U' || key =='u'){
+    if( key =='u'){
 
         CAR_Y += 0.3f;
+    }
+    if(key == 'U'){
+        CAR_Y -= 0.3f;
+    }
+    if(key >= '1' && key <= '5')
+        cameraMode = key - '0';
+    if(cameraMode == 3){
+        if(key == ',') groundViewYaw = fmaxf(groundViewYaw - 3.0f, -30.0f);
+        if(key == '.') groundViewYaw = fminf(groundViewYaw + 3.0f,  30.0f);
     }
 }
 

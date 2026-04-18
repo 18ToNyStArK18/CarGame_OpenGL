@@ -50,6 +50,10 @@ The shader files `shader.vs` and `shader.fs` must be in the same directory as th
 | `H` | To sound Horn |
 | `<` / '>' | To change the camera angle when the camera is in the 3rd mode |
 | ' ' | For Boost |
+| 'T' | For Bullet time |
+| 'B' | To show hitboxes of the cars and buildings  |
+
+
 
 
 
@@ -66,8 +70,10 @@ The shader files `shader.vs` and `shader.fs` must be in the same directory as th
 - **Horn** — Press 'H' to sound Horn
 - **Street Lights** — Added multiple street light
 - **Boost Mode** — if you press Space it will increase the speed of the car by 5 times and changes the fov creating a boost effect
-- **Sound Effects** - Sound effects when collisoion happend
+- **Sound Effects** - Sound effects when collison happend
 - **Good looking car and streetlights** - Imported the models from blender and imported the obj file and parsed it in the code itself
+- **Bullet Time** - Implemented Bullet Time mechanism by slowing down the dt
+- **Hitboxes** -  Added hit boxes to all the objects btw which the collison is possible
 
 ---
 

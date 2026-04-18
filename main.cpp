@@ -13,7 +13,7 @@
 #include "file_utils.h"
 GLuint ShaderProgram;
 
-
+bool bullettime = false;
 float prevtime = 0.0f;
 //windmill
 float windmillAngle = 0.0f;       
@@ -637,6 +637,8 @@ void display(){
     }
 
     float dt = currentTime - prevtime;
+    if(bullettime)
+        dt = 0.01;
     windmillAngle += windmillSpeed * dt;
     if (windmillAngle > 360.0f) 
         windmillAngle -= 360.0f;
@@ -647,6 +649,8 @@ void display(){
     float rad = (-90.0f+Angle) * M_PI / 180.0f;
     if(dt < 0.03)
         dt = 0.03f;
+    if(bullettime)
+        dt = 0.003;
     if(!boost){
         CAR_X += Velocity *cos(rad)*dt;
         CAR_Z -= Velocity * sin(rad)*dt;
@@ -913,6 +917,8 @@ void keyboard(unsigned char key,int x,int y){
         }
         if(key == 'b' || key == 'B')
             showHitboxes = !showHitboxes;
+        if(key == 't' || key == 'T')
+            bullettime = !bullettime;
 
         if(key == 'h' || key == 'H')
             playHornsound();

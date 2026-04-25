@@ -1,4 +1,4 @@
-# 3D Car Avoidance Game
+# 3D Car Game
 **Computer Graphics**
 
 A dynamic 3D OpenGL game where the player controls a fast-moving car across an oval (two rectangles + two semi-circles) highway. Avoid procedural NPC traffic and buildings, utilize tactical boost mechanisms, and engage "bullet time" to weave through tight spots—all rendered with custom programmable shaders and a comprehensive dynamic light system.
